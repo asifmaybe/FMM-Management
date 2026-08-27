@@ -1,10 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { AlertTriangle, Archive, Banknote, ShoppingCart, TrendingUp } from "lucide-react";
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { AlertTriangle, Archive, ArrowUpRight, Banknote, ShoppingCart, TrendingUp } from "lucide-react";
 import { AppShell, PageHeader } from "@/components/fmm/AppShell";
+import { ProfitChart } from "@/components/fmm/ProfitChart";
 import { StatusBadge } from "@/components/fmm/StatusBadge";
+import { buildSeries } from "@/lib/fmm-analytics";
 import { daysInStock, useFmm } from "@/lib/fmm-store";
-import { Taka, TakaSign } from "@/components/fmm/Taka";
+import { Taka } from "@/components/fmm/Taka";
 
 export const Route = createFileRoute("/")({
   head: () => ({

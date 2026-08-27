@@ -2,6 +2,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import {
   CloudUpload,
   LayoutDashboard,
+  LineChart,
   LogOut,
   Receipt,
   ScanLine,
