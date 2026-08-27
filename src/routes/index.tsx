@@ -53,16 +53,7 @@ function DashboardPage() {
     state.transactions.filter((t) => t.payment_status === "Pending").map((t) => t.customer_name),
   ).size;
 
-  const chartData = Array.from({ length: 7 }, (_, i) => {
-    const day = new Date(today.getTime() - (6 - i) * 86400000);
-    const profit = state.transactions
-      .filter((t) => isSameDay(t.date, day) && t.payment_status === "Paid")
-      .reduce((sum, t) => {
-        const phone = state.phones.find((p) => p.id === t.phone_id);
-        return sum + (t.amount - (phone?.purchase_price ?? 0));
-      }, 0);
-    return { day: day.toLocaleDateString("en-US", { weekday: "short" }), profit };
-  });
+  const chartData = buildSeries(state, "daily", 7);
 
   const modelCounts = new Map<string, { label: string; supplier: string; count: number }>();
   for (const p of state.phones) {
