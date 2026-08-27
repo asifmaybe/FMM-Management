@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuditRouteImport } from './routes/audit'
 import { Route as EvidenceRouteImport } from './routes/evidence'
 import { Route as IntakeRouteImport } from './routes/intake'
+import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as SalesRouteImport } from './routes/sales'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as StockRouteImport } from './routes/stock'
@@ -37,6 +38,11 @@ const EvidenceRoute = EvidenceRouteImport.update({
 const IntakeRoute = IntakeRouteImport.update({
   id: '/intake',
   path: '/intake',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReportsRoute = ReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SalesRoute = SalesRouteImport.update({
@@ -70,6 +76,7 @@ export interface FileRoutesByFullPath {
   '/audit': typeof AuditRoute
   '/evidence': typeof EvidenceRoute
   '/intake': typeof IntakeRoute
+  '/reports': typeof ReportsRoute
   '/sales': typeof SalesRoute
   '/settings': typeof SettingsRoute
   '/stock': typeof StockRoute
@@ -81,6 +88,7 @@ export interface FileRoutesByTo {
   '/audit': typeof AuditRoute
   '/evidence': typeof EvidenceRoute
   '/intake': typeof IntakeRoute
+  '/reports': typeof ReportsRoute
   '/sales': typeof SalesRoute
   '/settings': typeof SettingsRoute
   '/stock': typeof StockRoute
@@ -93,6 +101,7 @@ export interface FileRoutesById {
   '/audit': typeof AuditRoute
   '/evidence': typeof EvidenceRoute
   '/intake': typeof IntakeRoute
+  '/reports': typeof ReportsRoute
   '/sales': typeof SalesRoute
   '/settings': typeof SettingsRoute
   '/stock': typeof StockRoute
@@ -106,6 +115,7 @@ export interface FileRouteTypes {
     | '/audit'
     | '/evidence'
     | '/intake'
+    | '/reports'
     | '/sales'
     | '/settings'
     | '/stock'
@@ -117,6 +127,7 @@ export interface FileRouteTypes {
     | '/audit'
     | '/evidence'
     | '/intake'
+    | '/reports'
     | '/sales'
     | '/settings'
     | '/stock'
@@ -128,6 +139,7 @@ export interface FileRouteTypes {
     | '/audit'
     | '/evidence'
     | '/intake'
+    | '/reports'
     | '/sales'
     | '/settings'
     | '/stock'
@@ -140,6 +152,7 @@ export interface RootRouteChildren {
   AuditRoute: typeof AuditRoute
   EvidenceRoute: typeof EvidenceRoute
   IntakeRoute: typeof IntakeRoute
+  ReportsRoute: typeof ReportsRoute
   SalesRoute: typeof SalesRoute
   SettingsRoute: typeof SettingsRoute
   StockRoute: typeof StockRoute
@@ -175,6 +188,13 @@ declare module '@tanstack/react-router' {
       path: '/intake'
       fullPath: '/intake'
       preLoaderRoute: typeof IntakeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reports': {
+      id: '/reports'
+      path: '/reports'
+      fullPath: '/reports'
+      preLoaderRoute: typeof ReportsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sales': {
@@ -220,6 +240,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuditRoute: AuditRoute,
   EvidenceRoute: EvidenceRoute,
   IntakeRoute: IntakeRoute,
+  ReportsRoute: ReportsRoute,
   SalesRoute: SalesRoute,
   SettingsRoute: SettingsRoute,
   StockRoute: StockRoute,
