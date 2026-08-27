@@ -72,10 +72,10 @@ function DashboardPage() {
     .slice(0, 6);
 
   const cards = [
-    { label: "TOTAL STOCK", value: String(totalStock), icon: Archive, hint: `+${addedThisWeek} this week`, hintClass: "text-success" },
-    { label: "SOLD TODAY", value: String(soldToday), icon: ShoppingCart, hint: `${pendingToday} pending payment`, hintClass: "text-muted-foreground" },
-    { label: "NET PROFIT (TODAY)", value: <Taka value={netProfitToday} />, icon: Banknote, hint: "Sales minus purchase cost", hintClass: "text-muted-foreground" },
-    { label: "OUTSTANDING", value: <Taka value={outstanding} />, icon: AlertTriangle, hint: `Across ${outstandingSuppliers} customers`, hintClass: "text-muted-foreground", danger: true },
+    { label: "TOTAL STOCK", value: String(totalStock), icon: Archive, hint: `+${addedThisWeek} this week`, hintClass: "text-success", to: "/stock" as const },
+    { label: "SOLD TODAY", value: String(soldToday), icon: ShoppingCart, hint: `${pendingToday} pending payment`, hintClass: "text-muted-foreground", to: "/sales" as const },
+    { label: "NET PROFIT (TODAY)", value: <Taka value={netProfitToday} />, icon: Banknote, hint: "Sales minus purchase cost", hintClass: "text-muted-foreground", to: "/reports" as const },
+    { label: "OUTSTANDING", value: <Taka value={outstanding} />, icon: AlertTriangle, hint: `Across ${outstandingSuppliers} customers`, hintClass: "text-muted-foreground", danger: true, to: "/sales" as const },
   ];
 
   return (
