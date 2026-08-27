@@ -1,10 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { AlertTriangle, Archive, Banknote, ShoppingCart, TrendingUp } from "lucide-react";
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { AlertTriangle, Archive, ArrowUpRight, Banknote, ShoppingCart, TrendingUp } from "lucide-react";
 import { AppShell, PageHeader } from "@/components/fmm/AppShell";
+import { ProfitChart } from "@/components/fmm/ProfitChart";
 import { StatusBadge } from "@/components/fmm/StatusBadge";
+import { buildSeries } from "@/lib/fmm-analytics";
 import { daysInStock, useFmm } from "@/lib/fmm-store";
-import { Taka, TakaSign } from "@/components/fmm/Taka";
+import { Taka } from "@/components/fmm/Taka";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -52,16 +53,7 @@ function DashboardPage() {
     state.transactions.filter((t) => t.payment_status === "Pending").map((t) => t.customer_name),
   ).size;
 
-  const chartData = Array.from({ length: 7 }, (_, i) => {
-    const day = new Date(today.getTime() - (6 - i) * 86400000);
-    const profit = state.transactions
-      .filter((t) => isSameDay(t.date, day) && t.payment_status === "Paid")
-      .reduce((sum, t) => {
-        const phone = state.phones.find((p) => p.id === t.phone_id);
-        return sum + (t.amount - (phone?.purchase_price ?? 0));
-      }, 0);
-    return { day: day.toLocaleDateString("en-US", { weekday: "short" }), profit };
-  });
+  const chartData = buildSeries(state, "daily", 7);
 
   const modelCounts = new Map<string, { label: string; supplier: string; count: number }>();
   for (const p of state.phones) {
@@ -80,10 +72,10 @@ function DashboardPage() {
     .slice(0, 6);
 
   const cards = [
-    { label: "TOTAL STOCK", value: String(totalStock), icon: Archive, hint: `+${addedThisWeek} this week`, hintClass: "text-success" },
-    { label: "SOLD TODAY", value: String(soldToday), icon: ShoppingCart, hint: `${pendingToday} pending payment`, hintClass: "text-muted-foreground" },
-    { label: "NET PROFIT (TODAY)", value: <Taka value={netProfitToday} />, icon: Banknote, hint: "Sales minus purchase cost", hintClass: "text-muted-foreground" },
-    { label: "OUTSTANDING", value: <Taka value={outstanding} />, icon: AlertTriangle, hint: `Across ${outstandingSuppliers} customers`, hintClass: "text-muted-foreground", danger: true },
+    { label: "TOTAL STOCK", value: String(totalStock), icon: Archive, hint: `+${addedThisWeek} this week`, hintClass: "text-success", to: "/stock" as const },
+    { label: "SOLD TODAY", value: String(soldToday), icon: ShoppingCart, hint: `${pendingToday} pending payment`, hintClass: "text-muted-foreground", to: "/sales" as const },
+    { label: "NET PROFIT (TODAY)", value: <Taka value={netProfitToday} />, icon: Banknote, hint: "Sales minus purchase cost", hintClass: "text-muted-foreground", to: "/reports" as const },
+    { label: "OUTSTANDING", value: <Taka value={outstanding} />, icon: AlertTriangle, hint: `Across ${outstandingSuppliers} customers`, hintClass: "text-muted-foreground", danger: true, to: "/sales" as const },
   ];
 
   return (
@@ -93,7 +85,11 @@ function DashboardPage() {
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {cards.map((c) => (
-            <div key={c.label} className="rounded-xl border border-border bg-card p-5">
+            <Link
+              key={c.label}
+              to={c.to}
+              className="group rounded-xl border border-border bg-card p-5 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
+            >
               <div className="flex items-start justify-between">
                 <span className="text-xs font-semibold tracking-wide text-muted-foreground">{c.label}</span>
                 <span className={`rounded-lg p-2 ${c.danger ? "bg-danger-soft text-destructive" : "bg-secondary text-foreground"}`}>
@@ -104,35 +100,25 @@ function DashboardPage() {
               <p className={`mt-2 flex items-center gap-1 text-xs ${c.hintClass}`}>
                 {c.hintClass === "text-success" ? <TrendingUp className="size-3.5" /> : null}
                 {c.hint}
+                <ArrowUpRight className="ml-auto size-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
               </p>
-            </div>
+            </Link>
           ))}
         </div>
 
         <div className="mt-4 grid gap-4 xl:grid-cols-[1.9fr_1fr]">
           <div className="rounded-xl border border-border bg-card p-5">
-            <h3 className="text-sm font-semibold tracking-wide">PROFIT TREND (7 DAYS)</h3>
-            <div className="mt-6 h-[320px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData} margin={{ left: 8, right: 8 }}>
-                  <CartesianGrid stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="day" tickLine={false} axisLine={false} stroke="var(--muted-foreground)" fontSize={12} />
-                  <YAxis
-                    tickFormatter={(v: number) => `${Math.round(v / 1000)}k`}
-                    tickLine={false}
-                    axisLine={false}
-                    stroke="var(--muted-foreground)"
-                    fontSize={12}
-                  />
-                  <Tooltip
-                    formatter={(v: number) => <Taka value={v} />}
-                    contentStyle={{ borderRadius: 12, border: "1px solid var(--border)", fontSize: 12 }}
-                  />
-                  <Area type="linear" dataKey="profit" stroke="var(--primary)" strokeWidth={2} fill="var(--secondary)" dot={{ r: 4, fill: "var(--card)" }} />
-                </AreaChart>
-              </ResponsiveContainer>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold tracking-wide">PROFIT TREND (7 DAYS)</h3>
+              <Link to="/reports" className="text-sm font-medium hover:underline">
+                Full reports
+              </Link>
+            </div>
+            <div className="mt-6">
+              <ProfitChart data={chartData} />
             </div>
           </div>
+
 
           <div className="rounded-xl border border-border bg-card">
             <div className="flex items-center gap-2 border-b border-border px-5 py-4">

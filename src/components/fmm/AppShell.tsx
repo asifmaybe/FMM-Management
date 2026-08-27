@@ -2,6 +2,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import {
   CloudUpload,
   LayoutDashboard,
+  LineChart,
   LogOut,
   Receipt,
   ScanLine,
@@ -18,6 +19,7 @@ const nav = [
   { to: "/stock", label: "Stock", icon: Smartphone },
   { to: "/suppliers", label: "Suppliers", icon: Truck },
   { to: "/sales", label: "Sales", icon: Receipt },
+  { to: "/reports", label: "Profit Reports", icon: LineChart },
   { to: "/evidence", label: "Customer Evidence", icon: ScanLine },
   { to: "/audit", label: "Audit Log", icon: Shield },
 ] as const;
