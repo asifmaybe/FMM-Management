@@ -9,6 +9,7 @@ import type {
   Phone,
   Settings,
   Supplier,
+  SupplierPayment,
   Transaction,
   TransactionType,
 } from "./fmm-types";
@@ -26,6 +27,13 @@ interface FmmContextValue {
     amount: number;
     payment_status: PaymentStatus;
     notes?: string;
+  }) => void;
+  recordSupplierPayment: (input: {
+    supplier_id: string;
+    amount: number;
+    date?: string;
+    notes?: string;
+    phone_id?: string | null;
   }) => void;
   collectPayment: (transaction_id: string) => void;
   saveCustomerPurchase: (
@@ -49,8 +57,17 @@ export function FmmProvider({ children }: { children: ReactNode }) {
     loadState()
       .then((loaded) => {
         if (cancelled) return;
-        if (loaded) setState(loaded);
-        else {
+        if (loaded) {
+          const hydrated: FmmState = {
+            ...loaded,
+            supplier_payments: loaded.supplier_payments ?? [],
+            phones: (loaded.phones ?? []).map((p) => ({
+              ...p,
+              sold_price: p.sold_price ?? (p.status === "Sold" ? (p.selling_price ?? p.purchase_price) : null),
+            })),
+          };
+          setState(hydrated);
+        } else {
           const seeded = seedState();
           setState(seeded);
           void saveState(seeded);
@@ -134,7 +151,7 @@ export function FmmProvider({ children }: { children: ReactNode }) {
       return {
         ...prev,
         phones: prev.phones.map((p) =>
-          p.id === phone.id ? { ...p, status, selling_price: input.amount, updated_at: now } : p,
+          p.id === phone.id ? { ...p, status, sold_price: input.amount, updated_at: now } : p,
         ),
         transactions: [tx, ...prev.transactions],
         audit_log: [
@@ -143,6 +160,37 @@ export function FmmProvider({ children }: { children: ReactNode }) {
             "transaction",
             tx.id,
             label,
+            input.amount,
+          ),
+          ...prev.audit_log,
+        ],
+      };
+    });
+  }, []);
+
+  const recordSupplierPayment = useCallback<FmmContextValue["recordSupplierPayment"]>((input) => {
+    setState((prev) => {
+      const supplier = prev.suppliers.find((s) => s.id === input.supplier_id);
+      if (!supplier) return prev;
+      const now = new Date().toISOString();
+      const payment: SupplierPayment = {
+        id: uid("sp"),
+        supplier_id: input.supplier_id,
+        amount: input.amount,
+        date: input.date || now,
+        notes: input.notes ?? "",
+        phone_id: input.phone_id ?? null,
+        created_at: now,
+      };
+      return {
+        ...prev,
+        supplier_payments: [payment, ...(prev.supplier_payments ?? [])],
+        audit_log: [
+          log(
+            "Supplier Payment",
+            "supplier",
+            supplier.id,
+            `Paid ${taka(input.amount)} BDT to ${supplier.name}${input.notes ? ` (${input.notes})` : ""}`,
             input.amount,
           ),
           ...prev.audit_log,
@@ -283,6 +331,7 @@ export function FmmProvider({ children }: { children: ReactNode }) {
       addPhone,
       addSupplier,
       recordSale,
+      recordSupplierPayment,
       collectPayment,
       saveCustomerPurchase,
       updateSettings,
@@ -290,7 +339,7 @@ export function FmmProvider({ children }: { children: ReactNode }) {
       restoreBackup,
       resetData,
     }),
-    [state, ready, addPhone, addSupplier, recordSale, collectPayment, saveCustomerPurchase, updateSettings, runBackup, restoreBackup, resetData],
+    [state, ready, addPhone, addSupplier, recordSale, recordSupplierPayment, collectPayment, saveCustomerPurchase, updateSettings, runBackup, restoreBackup, resetData],
   );
 
   return (
@@ -323,4 +372,108 @@ export function daysInStock(created_at: string): number {
 export function supplierName(state: FmmState, phone: Phone): string {
   if (phone.source_type === "Buy from Customer") return "Bought from Customer";
   return state.suppliers.find((s) => s.id === phone.supplier_id)?.name ?? "—";
+}
+
+/** Total ever owed to a supplier = sum of purchase_price for every phone from that supplier that has been marked Sold */
+export function supplierTotalOwed(state: FmmState, supplierId: string): number {
+  return (state.phones ?? [])
+    .filter((p) => p.supplier_id === supplierId && p.status === "Sold")
+    .reduce((sum, p) => sum + p.purchase_price, 0);
+}
+
+/** Total ever paid to a supplier = sum of all manual SupplierPayment records */
+export function supplierTotalPaid(state: FmmState, supplierId: string): number {
+  return (state.supplier_payments ?? [])
+    .filter((sp) => sp.supplier_id === supplierId)
+    .reduce((sum, sp) => sum + sp.amount, 0);
+}
+
+/** Current amount due = owed - paid */
+export function supplierDueBalance(state: FmmState, supplierId: string): number {
+  return supplierTotalOwed(state, supplierId) - supplierTotalPaid(state, supplierId);
+}
+
+/** Shop's own running balance = sum of (sold_price - purchase_price) for every phone marked Sold */
+export function shopBalance(state: FmmState): number {
+  return (state.phones ?? [])
+    .filter((p) => p.status === "Sold" && p.sold_price !== null && p.sold_price !== undefined)
+    .reduce((sum, p) => sum + (p.sold_price! - p.purchase_price), 0);
+}
+
+/** Total supplier dues outstanding across all suppliers combined */
+export function totalSuppliersDue(state: FmmState): number {
+  return (state.suppliers ?? []).reduce((sum, s) => sum + supplierDueBalance(state, s.id), 0);
+}
+
+export interface PhonePaymentInfo {
+  phoneId: string;
+  cost: number;
+  paid: number;
+  due: number;
+  status: "Paid" | "Due" | "Not Paid";
+}
+
+/** Computes per-device payment breakdown for a supplier, supporting both direct and FIFO unallocated payments */
+export function getSupplierPhonesPaymentMap(
+  state: FmmState,
+  supplierId: string
+): Map<string, PhonePaymentInfo> {
+  const map = new Map<string, PhonePaymentInfo>();
+  const supplierPhones = (state.phones ?? []).filter((p) => p.supplier_id === supplierId);
+  const supplierPayments = (state.supplier_payments ?? []).filter((sp) => sp.supplier_id === supplierId);
+
+  // 1. Direct payments explicitly assigned to phone_id
+  const directPaidMap = new Map<string, number>();
+  let unallocatedPaid = 0;
+
+  for (const sp of supplierPayments) {
+    if (sp.phone_id) {
+      directPaidMap.set(sp.phone_id, (directPaidMap.get(sp.phone_id) ?? 0) + sp.amount);
+    } else {
+      unallocatedPaid += sp.amount;
+    }
+  }
+
+  // 2. Initialize map with direct payments
+  for (const p of supplierPhones) {
+    const directPaid = directPaidMap.get(p.id) ?? 0;
+    map.set(p.id, {
+      phoneId: p.id,
+      cost: p.purchase_price,
+      paid: directPaid,
+      due: Math.max(0, p.purchase_price - directPaid),
+      status: directPaid >= p.purchase_price ? "Paid" : directPaid > 0 ? "Due" : "Not Paid",
+    });
+  }
+
+  // 3. Distribute unallocated payments in chronological order (sold units first)
+  if (unallocatedPaid > 0) {
+    const sorted = [...supplierPhones].sort((a, b) => {
+      if (a.status === "Sold" && b.status !== "Sold") return -1;
+      if (a.status !== "Sold" && b.status === "Sold") return 1;
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    });
+
+    let rem = unallocatedPaid;
+    for (const p of sorted) {
+      if (rem <= 0) break;
+      const current = map.get(p.id)!;
+      const remainingDue = current.due;
+      if (remainingDue <= 0) continue;
+
+      const add = Math.min(rem, remainingDue);
+      const newPaid = current.paid + add;
+      const newDue = current.cost - newPaid;
+      map.set(p.id, {
+        phoneId: p.id,
+        cost: current.cost,
+        paid: newPaid,
+        due: Math.max(0, newDue),
+        status: newPaid >= current.cost ? "Paid" : newPaid > 0 ? "Due" : "Not Paid",
+      });
+      rem -= add;
+    }
+  }
+
+  return map;
 }

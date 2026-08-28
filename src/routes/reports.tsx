@@ -264,28 +264,6 @@ function ReportsPage() {
                 </table>
               )}
             </div>
-
-            <div className="rounded-xl border border-border bg-card">
-              <h3 className="border-b border-border px-5 py-4 text-sm font-semibold tracking-wide">ACTIVITY LOG</h3>
-              {report.audit.length === 0 ? (
-                <p className="px-5 py-6 text-sm text-muted-foreground">No activity recorded on this day.</p>
-              ) : (
-                <div className="divide-y divide-border">
-                  {report.audit.map((a) => (
-                    <div key={a.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 text-sm">
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(a.timestamp).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
-                        </span>
-                        <StatusBadge status={a.action} />
-                        <span className="text-muted-foreground">{a.details}</span>
-                      </div>
-                      <span className="font-medium">{a.amount === null ? "—" : <Taka value={a.amount} />}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
         </div>
       </div>

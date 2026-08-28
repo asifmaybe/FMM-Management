@@ -34,6 +34,7 @@ export interface Phone {
   customer_purchase_id: string | null;
   purchase_price: number;
   selling_price: number | null;
+  sold_price?: number | null;
   status: PhoneStatus;
   condition_notes: string;
   damage_checklist: DamageChecklist;
@@ -77,6 +78,16 @@ export interface CustomerPurchase {
   created_at: string;
 }
 
+export interface SupplierPayment {
+  id: string;
+  supplier_id: string;
+  amount: number;
+  date: string;
+  notes: string;
+  phone_id?: string | null;
+  created_at: string;
+}
+
 export type AuditAction =
   | "Added"
   | "Sold"
@@ -84,6 +95,7 @@ export type AuditAction =
   | "Payment Pending"
   | "Payment Collected"
   | "Bought from Customer"
+  | "Supplier Payment"
   | "Backup"
   | "Restore";
 
@@ -115,6 +127,7 @@ export interface FmmState {
   suppliers: Supplier[];
   phones: Phone[];
   transactions: Transaction[];
+  supplier_payments: SupplierPayment[];
   customer_purchases: CustomerPurchase[];
   audit_log: AuditEntry[];
   backups: BackupRecord[];

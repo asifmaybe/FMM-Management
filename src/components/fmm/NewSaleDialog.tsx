@@ -42,6 +42,8 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
     setForm((f) => ({ ...f, phone_id: "", customer_name: "", customer_phone: "", amount: "", notes: "" }));
   };
 
+  const selectedPhone = available.find((p) => p.id === form.phone_id);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg rounded-2xl">
@@ -66,12 +68,28 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                 <option value="">Select a phone…</option>
                 {available.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.brand} {p.model} — {p.imei} ({<Taka value={p.purchase_price} />})
+                    {p.brand} {p.model} — {p.imei}
                   </option>
                 ))}
               </select>
             </Field>
           </div>
+
+          {selectedPhone ? (
+            <div className="sm:col-span-2 grid grid-cols-2 gap-2 rounded-xl bg-secondary/50 p-3 text-xs">
+              <div>
+                <span className="text-muted-foreground">Purchase Rate (Supplier Floor):</span>{" "}
+                <span className="font-semibold text-foreground"><Taka value={selectedPhone.purchase_price} /></span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Asking Rate:</span>{" "}
+                <span className="font-semibold text-foreground">
+                  {selectedPhone.selling_price ? <Taka value={selectedPhone.selling_price} /> : "—"}
+                </span>
+              </div>
+            </div>
+          ) : null}
+
           <Field label="Type">
             <select
               value={form.type}
@@ -98,11 +116,11 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
           <Field label="Customer phone">
             <Input value={form.customer_phone} onChange={(e) => set("customer_phone", e.target.value)} placeholder="01XXX-XXXXXX" />
           </Field>
-          <Field label={<>Amount (<TakaSign />)</>}>
-            <Input type="number" value={form.amount} onChange={(e) => set("amount", e.target.value)} />
+          <Field label={<>Sold Rate / Amount (<TakaSign />)</>}>
+            <Input type="number" required value={form.amount} onChange={(e) => set("amount", e.target.value)} placeholder="Final closing sold rate" />
           </Field>
           <Field label="Notes">
-            <Input value={form.notes} onChange={(e) => set("notes", e.target.value)} />
+            <Input value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Payment method or terms" />
           </Field>
         </div>
         <DialogFooter>

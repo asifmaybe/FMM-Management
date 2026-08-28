@@ -65,6 +65,7 @@ export function seedState(): FmmState {
     selling_price: number | null,
     status: FmmState["phones"][number]["status"],
     ageDays: number,
+    sold_price: number | null = status === "Sold" ? (selling_price ?? purchase_price) : null,
   ): FmmState["phones"][number] => ({
     id: uid("ph"),
     imei,
@@ -79,6 +80,7 @@ export function seedState(): FmmState {
     customer_purchase_id: null,
     purchase_price,
     selling_price,
+    sold_price,
     status,
     condition_notes: "",
     damage_checklist: { screen_scratch: false, body_dent: false, battery_issue: false, camera_blurry: false },
@@ -90,7 +92,7 @@ export function seedState(): FmmState {
   const phones = [
     mk("359012345678901", "Samsung", "Galaxy S23", "8GB / 256GB", "New", s1, 75000, 82000, "Available", 12),
     mk("358192837465012", "Apple", "iPhone 14 Pro", "6GB / 128GB", "Used - A", s2, 90000, 98000, "Payment Pending", 3),
-    mk("352345678901234", "Xiaomi", "Redmi Note 12", "4GB / 128GB", "New", s1, 16500, 18500, "Sold", 0),
+    mk("352345678901234", "Xiaomi", "Redmi Note 12", "4GB / 128GB", "New", s1, 16500, 18500, "Sold", 0, 18500),
     mk("356789012345678", "Google", "Pixel 7", "8GB / 128GB", "Used - B", null, 45000, 52000, "Exchange", 5),
     mk("351122334455667", "Apple", "iPhone 13 Pro", "6GB / 256GB", "Used - A", s1, 78000, 85000, "Available", 9),
     mk("351122334455668", "Samsung", "Galaxy S22 Ultra", "12GB / 256GB", "Used - A", s2, 62000, 70000, "Available", 20),
@@ -145,6 +147,7 @@ export function seedState(): FmmState {
     suppliers,
     phones,
     transactions,
+    supplier_payments: [],
     customer_purchases,
     audit_log,
     backups: [],

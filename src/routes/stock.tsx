@@ -93,7 +93,7 @@ function StockPage() {
           <table className="w-full min-w-[900px] text-sm">
             <thead className="bg-secondary/60 text-left text-muted-foreground">
               <tr>
-                {["IMEI", "Brand / Model", "Specs", "Battery Health", "Cond.", "Supplier", "Price (Buy/Sell)", "Status", "Days"].map((h) => (
+                {["Date", "IMEI", "Brand / Model", "Specs", "Battery Health", "Supplier", "Price", "Status", "Days"].map((h) => (
                   <th key={h} className={`px-5 py-3 font-medium ${h === "Days" || h.startsWith("Price") ? "text-right" : ""}`}>
                     {h}
                   </th>
@@ -106,6 +106,9 @@ function StockPage() {
                 const specs = isApple ? p.storage_ram.split("/").pop()?.trim() || "—" : p.storage_ram;
                 return (
                 <tr key={p.id} className="cursor-pointer hover:bg-secondary/40" onClick={() => setDetailId(p.id)}>
+                  <td className="px-5 py-4 whitespace-nowrap text-muted-foreground">
+                    {new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  </td>
                   <td className="px-5 py-4 whitespace-nowrap">
                     <div>{p.imei}</div>
                     {p.imei_secondary ? (
@@ -117,10 +120,9 @@ function StockPage() {
                   </td>
                   <td className="px-5 py-4 text-muted-foreground">{specs}</td>
                   <td className="px-5 py-4 text-muted-foreground">{p.battery_health || "—"}</td>
-                  <td className="px-5 py-4 text-muted-foreground">{p.condition}</td>
                   <td className="px-5 py-4 text-muted-foreground">{supplierName(state, p)}</td>
-                  <td className="px-5 py-4 text-right whitespace-nowrap">
-                    {<Taka value={p.purchase_price} />} / {p.selling_price ? <Taka value={p.selling_price} /> : "—"}
+                  <td className="px-5 py-4 text-right whitespace-nowrap font-medium">
+                    {p.selling_price ? <Taka value={p.selling_price} /> : "—"}
                   </td>
                   <td className="px-5 py-4">
                     <StatusBadge status={p.status} />

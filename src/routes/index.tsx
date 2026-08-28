@@ -1,10 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { AlertTriangle, Archive, ArrowUpRight, Banknote, ShoppingCart, TrendingUp } from "lucide-react";
+import { AlertTriangle, Archive, ArrowUpRight, Banknote, HandCoins, ShoppingCart, TrendingUp, Wallet } from "lucide-react";
 import { AppShell, PageHeader } from "@/components/fmm/AppShell";
 import { ProfitChart } from "@/components/fmm/ProfitChart";
 import { StatusBadge } from "@/components/fmm/StatusBadge";
 import { buildSeries } from "@/lib/fmm-analytics";
-import { daysInStock, useFmm } from "@/lib/fmm-store";
+import { daysInStock, shopBalance, totalSuppliersDue, useFmm } from "@/lib/fmm-store";
 import { Taka } from "@/components/fmm/Taka";
 
 export const Route = createFileRoute("/")({
@@ -41,10 +41,8 @@ function DashboardPage() {
   const soldToday = todayTx.length;
   const pendingToday = todayTx.filter((t) => t.payment_status === "Pending").length;
 
-  const netProfitToday = todayTx.filter((t) => t.payment_status === "Paid").reduce((sum, t) => {
-    const phone = state.phones.find((p) => p.id === t.phone_id);
-    return sum + (t.amount - (phone?.purchase_price ?? 0));
-  }, 0);
+  const shopBal = shopBalance(state);
+  const totalDues = totalSuppliersDue(state);
 
   const outstanding = state.transactions
     .filter((t) => t.payment_status === "Pending")
@@ -72,10 +70,10 @@ function DashboardPage() {
     .slice(0, 6);
 
   const cards = [
+    { label: "SHOP PROFIT BALANCE", value: <Taka value={shopBal} />, icon: Wallet, hint: "Accumulated realized profit", hintClass: "text-success", to: "/reports" as const },
+    { label: "TOTAL SUPPLIER DUE", value: <Taka value={totalDues} />, icon: HandCoins, hint: `Owed across ${state.suppliers.length} suppliers`, hintClass: totalDues > 0 ? "text-destructive" : "text-success", danger: totalDues > 0, to: "/suppliers" as const },
     { label: "TOTAL STOCK", value: String(totalStock), icon: Archive, hint: `+${addedThisWeek} this week`, hintClass: "text-success", to: "/stock" as const },
-    { label: "SOLD TODAY", value: String(soldToday), icon: ShoppingCart, hint: `${pendingToday} pending payment`, hintClass: "text-muted-foreground", to: "/sales" as const },
-    { label: "NET PROFIT (TODAY)", value: <Taka value={netProfitToday} />, icon: Banknote, hint: "Sales minus purchase cost", hintClass: "text-muted-foreground", to: "/reports" as const },
-    { label: "OUTSTANDING", value: <Taka value={outstanding} />, icon: AlertTriangle, hint: `Across ${outstandingSuppliers} customers`, hintClass: "text-muted-foreground", danger: true, to: "/sales" as const },
+    { label: "CUSTOMER OUTSTANDING", value: <Taka value={outstanding} />, icon: AlertTriangle, hint: `Across ${outstandingSuppliers} customers`, hintClass: outstanding > 0 ? "text-destructive" : "text-muted-foreground", danger: outstanding > 0, to: "/sales" as const },
   ];
 
   return (
