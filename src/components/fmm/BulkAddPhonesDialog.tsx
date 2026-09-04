@@ -41,7 +41,7 @@ export function BulkAddPhonesDialog({
   supplierId: string;
   supplierName: string;
 }) {
-  const { addPhone } = useFmm();
+  const { addPhonesBatch } = useFmm();
   const [rows, setRows] = useState<Row[]>([emptyRow(), emptyRow(), emptyRow()]);
 
   const set = (i: number, k: keyof Row, v: string) =>
@@ -59,27 +59,31 @@ export function BulkAddPhonesDialog({
       toast.error("Every filled row needs IMEI, brand, model and purchase price.");
       return;
     }
-    filled.forEach((r) =>
-      addPhone({
-        imei: r.imei.trim(),
-        imei_secondary: null,
-        battery_health: null,
-        brand: r.brand.trim(),
-        model: r.model.trim(),
-        storage_ram: r.storage_ram.trim(),
-        condition: r.condition,
-        source_type: "Supplier Purchase",
-        supplier_id: supplierId,
-        customer_purchase_id: null,
-        purchase_price: Number(r.purchase_price),
-        selling_price: r.selling_price ? Number(r.selling_price) : null,
-        status: "Available",
-        condition_notes: "",
-        damage_checklist: { screen_scratch: false, body_dent: false, battery_issue: false, camera_blurry: false },
-        warranty_repair_notes: "",
-      }),
-    );
-    toast.success(`${filled.length} phone${filled.length > 1 ? "s" : ""} added from ${supplierName}`);
+    const phoneList = filled.map((r) => ({
+      imei: r.imei.trim(),
+      imei_secondary: null,
+      battery_health: null,
+      brand: r.brand.trim(),
+      model: r.model.trim(),
+      storage_ram: r.storage_ram.trim(),
+      condition: r.condition,
+      source_type: "Supplier Purchase" as const,
+      supplier_id: supplierId,
+      customer_purchase_id: null,
+      purchase_price: Number(r.purchase_price),
+      selling_price: r.selling_price ? Number(r.selling_price) : null,
+      status: "Available" as const,
+      condition_notes: "",
+      damage_checklist: { screen_scratch: false, body_dent: false, battery_issue: false, camera_blurry: false },
+      warranty_repair_notes: "",
+    }));
+
+    addPhonesBatch(phoneList, {
+      supplier_id: supplierId,
+      notes: `Bulk import of ${filled.length} device(s) from ${supplierName}`,
+    });
+
+    toast.success(`${filled.length} phone${filled.length > 1 ? "s" : ""} added & purchase batch recorded`);
     setRows([emptyRow(), emptyRow(), emptyRow()]);
     onOpenChange(false);
   };

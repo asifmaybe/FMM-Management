@@ -27,11 +27,11 @@ export function RecordSupplierPaymentDialog({
     return supplier ? getSupplierPhonesPaymentMap(state, supplier.id) : new Map();
   }, [state, supplier]);
 
-  // Find all sold phones from this supplier where payment status is Not Paid or Due
-  const dueSoldPhones = useMemo(() => {
+  // Find all phones from this supplier where payment status is Not Paid or Due
+  const duePhones = useMemo(() => {
     if (!supplier) return [];
     return (state.phones ?? [])
-      .filter((p) => p.supplier_id === supplier.id && p.status === "Sold")
+      .filter((p) => p.supplier_id === supplier.id)
       .map((p) => {
         const info = paymentMap.get(p.id) ?? {
           phoneId: p.id,
@@ -42,7 +42,12 @@ export function RecordSupplierPaymentDialog({
         };
         return { phone: p, info };
       })
-      .filter((item) => item.info.status !== "Paid");
+      .filter((item) => item.info.status !== "Paid")
+      .sort((a, b) => {
+        if (a.phone.status === "Sold" && b.phone.status !== "Sold") return -1;
+        if (a.phone.status !== "Sold" && b.phone.status === "Sold") return 1;
+        return new Date(b.phone.created_at).getTime() - new Date(a.phone.created_at).getTime();
+      });
   }, [state.phones, supplier, paymentMap]);
 
   // Track manual amount typed per phone: { [phoneId]: "amount" }
@@ -56,7 +61,7 @@ export function RecordSupplierPaymentDialog({
     if (open) {
       const initial: Record<string, string> = {};
       // Pre-fill with the remaining due for each due device so the user can easily adjust
-      dueSoldPhones.forEach(({ phone, info }) => {
+      duePhones.forEach(({ phone, info }) => {
         initial[phone.id] = info.due > 0 ? String(info.due) : "";
       });
       setPhoneAmounts(initial);
@@ -64,7 +69,7 @@ export function RecordSupplierPaymentDialog({
       setDate(new Date().toISOString().slice(0, 10));
       setNotes("");
     }
-  }, [open, dueSoldPhones]);
+  }, [open, duePhones]);
 
   if (!supplier) return null;
 
@@ -82,7 +87,7 @@ export function RecordSupplierPaymentDialog({
 
   const handleSelectAll = () => {
     const allFull: Record<string, string> = {};
-    dueSoldPhones.forEach(({ phone, info }) => {
+    duePhones.forEach(({ phone, info }) => {
       allFull[phone.id] = String(info.due);
     });
     setPhoneAmounts(allFull);
@@ -90,7 +95,7 @@ export function RecordSupplierPaymentDialog({
 
   const handleClearAll = () => {
     const allCleared: Record<string, string> = {};
-    dueSoldPhones.forEach(({ phone }) => {
+    duePhones.forEach(({ phone }) => {
       allCleared[phone.id] = "";
     });
     setPhoneAmounts(allCleared);
@@ -119,7 +124,7 @@ export function RecordSupplierPaymentDialog({
     let paymentsCount = 0;
 
     // 1. Record specific payments for individual phones
-    dueSoldPhones.forEach(({ phone }) => {
+    duePhones.forEach(({ phone }) => {
       const amt = Number(phoneAmounts[phone.id]);
       if (!isNaN(amt) && amt > 0) {
         recordSupplierPayment({
@@ -170,21 +175,21 @@ export function RecordSupplierPaymentDialog({
               </span>
             </div>
             <div>
-              <span className="text-muted-foreground">Sold Devices with Due:</span>{" "}
-              <span className="font-semibold text-foreground">{dueSoldPhones.length} items</span>
+              <span className="text-muted-foreground">Devices with Due:</span>{" "}
+              <span className="font-semibold text-foreground">{duePhones.length} items</span>
             </div>
           </div>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
           <div className="flex-1 overflow-y-auto p-6 space-y-5">
-            {/* List of Sold Devices With Outstanding Due */}
+            {/* List of Devices With Outstanding Due */}
             <div>
               <div className="flex items-center justify-between mb-2">
                 <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Select & Enter Payment per Sold Device
+                  Select & Enter Payment per Device
                 </Label>
-                {dueSoldPhones.length > 0 ? (
+                {duePhones.length > 0 ? (
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
@@ -205,15 +210,15 @@ export function RecordSupplierPaymentDialog({
                 ) : null}
               </div>
 
-              {dueSoldPhones.length === 0 ? (
+              {duePhones.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-border bg-card p-5 text-center text-sm text-muted-foreground">
                   <Check className="size-6 text-success mx-auto mb-1.5" />
-                  <p className="font-medium text-foreground">All sold devices are fully paid!</p>
+                  <p className="font-medium text-foreground">All devices are fully paid!</p>
                   <p className="text-xs mt-1">No devices currently have due payment. You can enter a general payment below if needed.</p>
                 </div>
               ) : (
                 <div className="space-y-2.5">
-                  {dueSoldPhones.map(({ phone, info }) => {
+                  {duePhones.map(({ phone, info }) => {
                     const currentEntered = Number(phoneAmounts[phone.id] || 0);
                     const isFullyPaid = currentEntered >= info.due && info.due > 0;
                     return (
@@ -232,6 +237,7 @@ export function RecordSupplierPaymentDialog({
                               <span className="font-semibold text-sm">
                                 {phone.brand} {phone.model}
                               </span>
+                              <StatusBadge status={phone.status} />
                               <StatusBadge status={info.status} />
                             </div>
                             <p className="mt-1 font-mono text-xs text-muted-foreground">

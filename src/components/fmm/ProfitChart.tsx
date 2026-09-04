@@ -46,12 +46,12 @@ export function ProfitChart({ data, height = 320 }: { data: PeriodPoint[]; heigh
           <CartesianGrid stroke="var(--border)" strokeDasharray="4 6" vertical={false} />
           <XAxis dataKey="label" tickLine={false} axisLine={false} stroke="var(--muted-foreground)" fontSize={12} tickMargin={10} />
           <YAxis
-            tickFormatter={(v: number) => (Math.abs(v) >= 1000 ? `${Math.round(v / 1000)}k` : String(Math.round(v)))}
+            tickFormatter={(v: number) => (Math.abs(v) >= 1000 ? `৳${Math.round(v / 1000)}k` : `৳${Math.round(v)}`)}
             tickLine={false}
             axisLine={false}
             stroke="var(--muted-foreground)"
             fontSize={12}
-            width={44}
+            width={48}
           />
           <Tooltip content={<CustomTooltip />} cursor={{ stroke: "var(--primary)", strokeDasharray: "4 4" }} />
           <Area

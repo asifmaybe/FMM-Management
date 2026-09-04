@@ -21,7 +21,7 @@ function IntakePage() {
       <CustomerIntakeDialog
         open={true}
         onOpenChange={(open) => {
-          if (!open) void navigate({ to: "/evidence" });
+          if (!open) void navigate({ to: "/stock" });
         }}
       />
     </AppShell>

@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowLeft, HandCoins, Layers, Receipt } from "lucide-react";
+import { ArrowLeft, Check, HandCoins, Layers, Receipt } from "lucide-react";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import { AppShell, PageHeader } from "@/components/fmm/AppShell";
 import { BulkAddPhonesDialog } from "@/components/fmm/BulkAddPhonesDialog";
 import { RecordSupplierPaymentDialog } from "@/components/fmm/RecordSupplierPaymentDialog";
@@ -8,6 +9,7 @@ import { StatusBadge } from "@/components/fmm/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { daysInStock, getSupplierPhonesPaymentMap, supplierDueBalance, supplierTotalOwed, supplierTotalPaid, useFmm } from "@/lib/fmm-store";
 import { Taka, TakaSign } from "@/components/fmm/Taka";
+import type { Phone } from "@/lib/fmm-types";
 
 export const Route = createFileRoute("/suppliers/$supplierId")({
   head: () => ({
@@ -23,7 +25,7 @@ export const Route = createFileRoute("/suppliers/$supplierId")({
 
 function SupplierDetailPage() {
   const { supplierId } = Route.useParams();
-  const { state } = useFmm();
+  const { state, recordSupplierPayment } = useFmm();
   const [status, setStatus] = useState("All");
   const [brand, setBrand] = useState("All");
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -42,6 +44,18 @@ function SupplierDetailPage() {
   const paymentStatusMap = useMemo(() => {
     return getSupplierPhonesPaymentMap(state, supplierId);
   }, [state, supplierId]);
+
+  const handleMarkPhonePaid = (p: Phone, dueAmt: number) => {
+    if (dueAmt <= 0) return;
+    recordSupplierPayment({
+      supplier_id: supplierId,
+      phone_id: p.id,
+      amount: dueAmt,
+      date: new Date().toISOString(),
+      notes: `${p.brand} ${p.model} (IMEI: …${p.imei.slice(-4)}) — Direct Settlement`,
+    });
+    toast.success(`Marked ${p.brand} ${p.model} as fully paid (${dueAmt.toLocaleString()} ৳)`);
+  };
 
   return (
     <AppShell>
@@ -79,7 +93,7 @@ function SupplierDetailPage() {
                 <Taka value={due} />
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {due > 0 ? "Outstanding balance owed" : "All sold stock cleared"}
+                {due > 0 ? "Outstanding balance owed" : "All stock cleared"}
               </p>
             </div>
 
@@ -157,11 +171,11 @@ function SupplierDetailPage() {
         </div>
 
         <div className="overflow-x-auto rounded-xl border border-border bg-card">
-          <table className="w-full min-w-[800px] text-sm">
+          <table className="w-full min-w-[860px] text-sm">
             <thead className="bg-secondary/60 text-left text-muted-foreground">
               <tr>
-                {["Date", "IMEI", "Brand / Model", "Specs", "Price (Buy/Sell)", "Status", "Payment", "Days"].map((h) => (
-                  <th key={h} className={`px-5 py-3 font-medium ${h === "Days" || h.startsWith("Price") ? "text-right" : ""}`}>
+                {["Date", "IMEI", "Brand / Model", "Specs", "Price (Buy/Sell)", "Status", "Payment", "Days", "Action"].map((h) => (
+                  <th key={h} className={`px-5 py-3 font-medium ${h === "Days" || h.startsWith("Price") || h === "Action" ? "text-right" : ""}`}>
                     {h}
                   </th>
                 ))}
@@ -171,8 +185,9 @@ function SupplierDetailPage() {
               {rows.map((p) => {
                 const payInfo = paymentStatusMap.get(p.id);
                 const payStatus = payInfo?.status ?? "Not Paid";
+                const remainingDue = payInfo ? payInfo.due : p.purchase_price;
                 return (
-                  <tr key={p.id}>
+                  <tr key={p.id} className="hover:bg-secondary/20 transition-colors">
                     <td className="px-5 py-4 whitespace-nowrap text-muted-foreground">
                       {new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </td>
@@ -188,15 +203,38 @@ function SupplierDetailPage() {
                       <StatusBadge status={p.status} />
                     </td>
                     <td className="px-5 py-4">
-                      <StatusBadge status={payStatus} />
+                      <div className="flex flex-col gap-0.5">
+                        <StatusBadge status={payStatus} />
+                        {payInfo && payInfo.paid > 0 && payInfo.due > 0 ? (
+                          <span className="text-[10px] text-muted-foreground">
+                            Paid: {payInfo.paid.toLocaleString()} ৳ · Due: {payInfo.due.toLocaleString()} ৳
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="px-5 py-4 text-right">{daysInStock(p.created_at)}</td>
+                    <td className="px-5 py-4 text-right whitespace-nowrap">
+                      {payStatus === "Paid" ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-success font-medium">
+                          <Check className="size-3.5" /> Paid
+                        </span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2.5 text-xs rounded-lg gap-1 border-primary/40 text-primary hover:bg-primary/10"
+                          onClick={() => handleMarkPhonePaid(p, remainingDue)}
+                        >
+                          <HandCoins className="size-3" /> Mark Paid
+                        </Button>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-5 py-10 text-center text-muted-foreground">
+                  <td colSpan={9} className="px-5 py-10 text-center text-muted-foreground">
                     No phones from this supplier match the filters.
                   </td>
                 </tr>

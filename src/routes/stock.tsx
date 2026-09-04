@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Plus, Search } from "lucide-react";
+import { ArrowLeftRight, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { AppShell, PageHeader } from "@/components/fmm/AppShell";
 import { StatusBadge } from "@/components/fmm/StatusBadge";
 import { AddPhoneDialog } from "@/components/fmm/AddPhoneDialog";
+import { ExchangePhoneDialog } from "@/components/fmm/ExchangePhoneDialog";
 import { PhoneDetailDialog } from "@/components/fmm/PhoneDetailDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +29,7 @@ function StockPage() {
   const [status, setStatus] = useState("All");
   const [supplier, setSupplier] = useState("All");
   const [open, setOpen] = useState(false);
+  const [exchangeOpen, setExchangeOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
 
   const rows = useMemo(() => {
@@ -40,7 +42,7 @@ function StockPage() {
     });
   }, [state, query, status, supplier]);
 
-  const supplierOptions = ["All", ...state.suppliers.map((s) => s.name), "Bought from Customer"];
+  const supplierOptions = ["All", ...state.suppliers.map((s) => s.name), "Bought from Customer", "Own Stock"];
 
   return (
     <AppShell>
@@ -59,7 +61,10 @@ function StockPage() {
                   className="w-[280px] rounded-xl pl-9"
                 />
               </div>
-              <Button variant="destructive" className="rounded-xl" onClick={() => setOpen(true)}>
+              <Button variant="outline" className="rounded-xl gap-1.5" onClick={() => setExchangeOpen(true)}>
+                <ArrowLeftRight className="size-4" /> Exchange
+              </Button>
+              <Button variant="destructive" className="rounded-xl gap-1.5" onClick={() => setOpen(true)}>
                 <Plus className="size-4" /> Add Phone
               </Button>
             </>
@@ -134,7 +139,6 @@ function StockPage() {
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-5 py-10 text-center text-muted-foreground">
-
                     No phones match these filters.
                   </td>
                 </tr>
@@ -144,6 +148,7 @@ function StockPage() {
         </div>
       </div>
 
+      <ExchangePhoneDialog open={exchangeOpen} onOpenChange={setExchangeOpen} />
       <AddPhoneDialog open={open} onOpenChange={setOpen} />
       <PhoneDetailDialog phoneId={detailId} onClose={() => setDetailId(null)} />
     </AppShell>
