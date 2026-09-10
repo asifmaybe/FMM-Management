@@ -8,6 +8,7 @@ import { Field } from "@/components/fmm/AddPhoneDialog";
 import { useFmm } from "@/lib/fmm-store";
 import type { PhoneCondition, StoredFile } from "@/lib/fmm-types";
 import { TakaSign } from "@/components/fmm/Taka";
+import { processStoredFile, isImageDocument } from "@/lib/fmm-file";
 
 const steps = ["Customer Info", "Identity Verification", "Phone Details"];
 const damageItems = [
@@ -17,14 +18,7 @@ const damageItems = [
   { key: "camera_blurry", label: "Camera Blurry" },
 ] as const;
 
-function readFile(file: File): Promise<StoredFile> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve({ name: file.name, data: String(reader.result) });
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
+const readFile = processStoredFile;
 
 export function CustomerIntakeDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const { saveCustomerPurchase } = useFmm();
@@ -293,7 +287,7 @@ function UploadTile({
   return (
     <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-secondary/40 p-6 text-center hover:bg-secondary">
       {file ? (
-        file.data.startsWith("data:image") ? (
+        isImageDocument(file) ? (
           <img src={file.data} alt={label} className="h-24 rounded-lg object-cover" />
         ) : (
           <FileText className="size-6" />

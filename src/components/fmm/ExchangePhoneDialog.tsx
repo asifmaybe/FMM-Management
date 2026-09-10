@@ -10,6 +10,7 @@ import { useFmm } from "@/lib/fmm-store";
 import { type PhoneCondition, type StoredFile } from "@/lib/fmm-types";
 import { Taka, TakaSign } from "./Taka";
 import { StatusBadge } from "./StatusBadge";
+import { processStoredFile, isImageDocument } from "@/lib/fmm-file";
 
 const steps = ["Outgoing Phone", "Trade-in Device", "Customer & Settlement"];
 
@@ -20,14 +21,7 @@ const damageItems = [
   { key: "camera_blurry", label: "Camera Blurry" },
 ] as const;
 
-function readFile(file: File): Promise<StoredFile> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve({ name: file.name, data: String(reader.result) });
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
+const readFile = processStoredFile;
 
 export function ExchangePhoneDialog({
   open,
@@ -672,7 +666,7 @@ function UploadTile({
     <div className="relative">
       <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-secondary/40 p-6 text-center hover:bg-secondary transition-colors">
         {file ? (
-          file.data.startsWith("data:image") ? (
+          isImageDocument(file) ? (
             <img src={file.data} alt={label} className="h-24 rounded-lg object-cover" />
           ) : (
             <FileText className="size-6 text-primary" />

@@ -17,7 +17,7 @@ import {
   ShieldAlert,
   ShieldCheck,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AppShell, PageHeader } from "@/components/fmm/AppShell";
 import { RestorePreviewDialog } from "@/components/fmm/RestorePreviewDialog";
@@ -46,7 +46,7 @@ export const Route = createFileRoute("/settings")({
 });
 
 function SettingsPage() {
-  const { state, updateSettings, runBackup, restoreBackup, resetData } = useFmm();
+  const { state, updateSettings, runBackup, restoreBackup, resetData, loadDemoData } = useFmm();
   const fileRef = useRef<HTMLInputElement>(null);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [status, setStatus] = useState<{ ok: boolean; message: string; verified?: boolean; timestamp?: string } | null>(null);
@@ -56,6 +56,13 @@ function SettingsPage() {
   const [selectedFileForRestore, setSelectedFileForRestore] = useState<File | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [electronDataDir, setElectronDataDir] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.api?.getDataDir) {
+      window.api.getDataDir().then(setElectronDataDir).catch(() => {});
+    }
+  }, []);
 
   const last = state.backups[0];
   const lastVerificationStatus = last ? (last.status || "Verified") : null;
@@ -210,6 +217,35 @@ function SettingsPage() {
             </p>
           </div>
         </section>
+
+        {/* ELECTRON SQLITE USER DATA BANNER */}
+        {electronDataDir ? (
+          <section className="rounded-xl border border-primary/30 bg-primary/5 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Database className="size-4 text-primary shrink-0" />
+                <span className="text-sm font-bold text-foreground">Desktop Offline SQLite Storage</span>
+                <span className="rounded-md bg-success/20 text-success text-[10px] font-semibold px-2 py-0.5">Active</span>
+              </div>
+              <p className="text-xs text-muted-foreground font-mono truncate max-w-xl" title={electronDataDir}>
+                {electronDataDir}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Database (<code>fmm.db</code>) and photos (<code>documents/</code>) are stored here. You can copy or back up this folder at any time.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl gap-2 text-xs shrink-0 self-start sm:self-center"
+              onClick={() => {
+                if (window.api?.openDataDir) window.api.openDataDir();
+              }}
+            >
+              <FolderOpen className="size-3.5 text-primary" /> Open Folder in Explorer
+            </Button>
+          </section>
+        ) : null}
 
         {/* 2. BACKUP & RESTORE ACTIONS */}
         <section className="rounded-xl border border-border bg-card p-6 space-y-5">
@@ -450,19 +486,35 @@ function SettingsPage() {
           <h3 className="text-lg font-bold text-destructive flex items-center gap-2">
             <ShieldAlert className="size-5 text-destructive" /> Danger Zone
           </h3>
-          <p className="mt-1 text-sm text-muted-foreground">Reset local data back to the sample dataset.</p>
-          <Button
-            variant="destructive"
-            className="mt-4 rounded-xl"
-            onClick={() => {
-              if (window.confirm("Reset all local data? Take a backup first.")) {
-                resetData();
-                toast.success("Local data reset");
-              }
-            }}
-          >
-            Reset local data
-          </Button>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Clear all sample/mock data to start with a fresh clean database (zero records), or reload the sample dataset.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <Button
+              variant="destructive"
+              className="rounded-xl"
+              onClick={() => {
+                if (window.confirm("Are you sure you want to delete ALL data and start with 0 records? This cannot be undone. Take a backup first if you want to keep anything.")) {
+                  resetData();
+                  toast.success("All data cleared! Fresh start with 0 records.");
+                }
+              }}
+            >
+              Clear All Data & Fresh Start (0 Records)
+            </Button>
+            <Button
+              variant="outline"
+              className="rounded-xl"
+              onClick={() => {
+                if (window.confirm("Load the sample/demo dataset with test phones, accessories, and transactions?")) {
+                  loadDemoData();
+                  toast.success("Sample demo dataset loaded.");
+                }
+              }}
+            >
+              Load Demo Dataset
+            </Button>
+          </div>
         </section>
       </div>
 

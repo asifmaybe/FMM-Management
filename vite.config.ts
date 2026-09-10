@@ -12,4 +12,11 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  ...(process.env["BUILD_TARGET"] === "electron"
+    ? {
+        nitro: {
+          preset: "node-server",
+        },
+      }
+    : {}),
 });

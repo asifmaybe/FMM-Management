@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { loadState, saveState, seedState, uid } from "./fmm-db";
+import { emptyState, loadState, saveState, seedState, uid } from "./fmm-db";
 import type {
   Accessory,
   AccessoryMovement,
@@ -166,12 +166,13 @@ export interface FmmContextValue {
   runBackup: (auto?: boolean) => Promise<BackupRecord | null>;
   restoreBackup: (file: File) => Promise<void>;
   resetData: () => void;
+  loadDemoData: () => void;
 }
 
 const FmmContext = createContext<FmmContextValue | null>(null);
 
 export function FmmProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<FmmState>(() => seedState());
+  const [state, setState] = useState<FmmState>(() => emptyState());
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -180,8 +181,8 @@ export function FmmProvider({ children }: { children: ReactNode }) {
       .then((loaded) => {
         if (cancelled) return;
         if (loaded) {
-          const seed = seedState();
-          // Backfill customers from transactions & purchases if empty
+          const defaults = emptyState();
+          // Backfill customers from transactions & purchases if empty (only if transactions/purchases exist)
           let customers = loaded.customers ?? [];
           if (customers.length === 0) {
             const customerMap = new Map<string, Customer>();
@@ -213,12 +214,13 @@ export function FmmProvider({ children }: { children: ReactNode }) {
                 });
               }
             });
-            customers = customerMap.size > 0 ? Array.from(customerMap.values()) : seed.customers;
+            customers = customerMap.size > 0 ? Array.from(customerMap.values()) : [];
           }
 
           const hydrated: FmmState = {
+            ...defaults,
             ...loaded,
-            suppliers: loaded.suppliers ?? seed.suppliers,
+            suppliers: loaded.suppliers ?? [],
             phones: (loaded.phones ?? []).map((p) => {
               const isPaymentPending = (p.status as string) === "Payment Pending";
               const status: PhoneStatus = isPaymentPending ? "Sold" : p.status;
@@ -229,11 +231,11 @@ export function FmmProvider({ children }: { children: ReactNode }) {
                 warranty_days: p.warranty_days ?? 30,
               };
             }),
-            accessories: loaded.accessories ?? seed.accessories,
-            accessory_movements: loaded.accessory_movements ?? seed.accessory_movements,
+            accessories: loaded.accessories ?? [],
+            accessory_movements: loaded.accessory_movements ?? [],
             customers,
-            purchases: loaded.purchases ?? seed.purchases,
-            transactions: (loaded.transactions ?? seed.transactions).map((t) => {
+            purchases: loaded.purchases ?? [],
+            transactions: (loaded.transactions ?? []).map((t) => {
               const summary = getTransactionPayment(t);
               return {
                 ...t,
@@ -244,21 +246,21 @@ export function FmmProvider({ children }: { children: ReactNode }) {
               };
             }),
             supplier_payments: loaded.supplier_payments ?? [],
-            customer_purchases: loaded.customer_purchases ?? seed.customer_purchases,
-            expenses: loaded.expenses ?? seed.expenses,
-            campaigns: loaded.campaigns ?? seed.campaigns,
-            warranty_claims: loaded.warranty_claims ?? seed.warranty_claims,
-            returns: loaded.returns ?? seed.returns,
-            exchanges: loaded.exchanges ?? seed.exchanges,
-            audit_log: loaded.audit_log ?? seed.audit_log,
+            customer_purchases: loaded.customer_purchases ?? [],
+            expenses: loaded.expenses ?? [],
+            campaigns: loaded.campaigns ?? [],
+            warranty_claims: loaded.warranty_claims ?? [],
+            returns: loaded.returns ?? [],
+            exchanges: loaded.exchanges ?? [],
+            audit_log: loaded.audit_log ?? [],
             backups: loaded.backups ?? [],
-            settings: loaded.settings ?? seed.settings,
+            settings: loaded.settings ?? defaults.settings,
           };
           setState(hydrated);
         } else {
-          const seeded = seedState();
-          setState(seeded);
-          void saveState(seeded);
+          const fresh = emptyState();
+          setState(fresh);
+          void saveState(fresh);
         }
         setReady(true);
       })
@@ -1575,7 +1577,17 @@ export function FmmProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
-  const resetData = useCallback(() => setState(seedState()), []);
+  const resetData = useCallback(() => {
+    const fresh = emptyState();
+    setState(fresh);
+    void saveState(fresh);
+  }, []);
+
+  const loadDemoData = useCallback(() => {
+    const seeded = seedState();
+    setState(seeded);
+    void saveState(seeded);
+  }, []);
 
   useEffect(() => {
     if (!ready) return;
@@ -1624,6 +1636,7 @@ export function FmmProvider({ children }: { children: ReactNode }) {
       runBackup,
       restoreBackup,
       resetData,
+      loadDemoData,
     }),
     [
       state,
@@ -1660,6 +1673,7 @@ export function FmmProvider({ children }: { children: ReactNode }) {
       runBackup,
       restoreBackup,
       resetData,
+      loadDemoData,
     ],
   );
 

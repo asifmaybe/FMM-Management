@@ -29,6 +29,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { useFmm, getTransactionPayment } from "@/lib/fmm-store";
 import { type Customer, type StoredFile, type WarrantyStatus } from "@/lib/fmm-types";
 import { Taka } from "@/components/fmm/Taka";
+import { isImageDocument } from "@/lib/fmm-file";
 
 export const Route = createFileRoute("/customers")({
   head: () => ({
@@ -445,7 +446,7 @@ function CustomersPage() {
                                 onClick={() => setPreviewDoc({ title: `${docItem.title} — ${cp.customer_name}`, doc: docItem.file })}
                                 className="group relative flex flex-col items-center rounded-lg border border-border bg-secondary/50 p-1.5 text-center transition hover:border-primary hover:bg-secondary"
                               >
-                                {docItem.file.data.startsWith("data:image") ? (
+                                {isImageDocument(docItem.file) ? (
                                   <div className="relative aspect-video w-full overflow-hidden rounded bg-background">
                                     <img
                                       src={docItem.file.data}
@@ -564,6 +565,31 @@ function CustomersPage() {
         onOpenChange={setWarrantyOpen}
         defaultCustomerId={selectedCustomer?.id}
       />
+
+      {/* Document & Evidence Preview Dialog */}
+      <Dialog open={!!previewDoc} onOpenChange={(open) => !open && setPreviewDoc(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold">{previewDoc?.title}</DialogTitle>
+          </DialogHeader>
+          <div className="flex items-center justify-center p-2">
+            {previewDoc && isImageDocument(previewDoc.doc) ? (
+              <img
+                src={previewDoc.doc.data}
+                alt={previewDoc.title}
+                className="max-h-[70vh] w-auto max-w-full rounded-lg object-contain shadow"
+              />
+            ) : previewDoc?.doc.data.startsWith("data:application/pdf") ? (
+              <iframe src={previewDoc.doc.data} title={previewDoc.title} className="w-full h-[70vh] rounded-lg border border-border" />
+            ) : (
+              <div className="p-8 text-center text-muted-foreground">
+                <FileText className="size-12 mx-auto mb-2 opacity-50" />
+                <p className="text-sm font-medium">{previewDoc?.doc.name}</p>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }
