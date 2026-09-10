@@ -34,6 +34,14 @@ export const Route = createFileRoute("/accessories")({
       { property: "og:description", content: "Track quantity-based mobile accessories, stock movements, and low-stock alerts." },
     ],
   }),
+  validateSearch: (s: Record<string, unknown>): { search?: string; low_stock?: string } => {
+    const search = s["search"];
+    const low_stock = s["low_stock"];
+    const out: { search?: string; low_stock?: string } = {};
+    if (typeof search === "string" && search) out.search = search;
+    if (typeof low_stock === "string" && low_stock) out.low_stock = low_stock;
+    return out;
+  },
   component: AccessoriesPage,
 });
 
@@ -52,9 +60,11 @@ const CATEGORIES: ("All" | AccessoryCategory)[] = [
 
 function AccessoriesPage() {
   const { state } = useFmm();
+  const searchParams = Route.useSearch();
 
   const [category, setCategory] = useState<string>("All");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(searchParams.search ?? "");
+  const [lowStockOnly, setLowStockOnly] = useState(searchParams.low_stock === "true");
   const [addOpen, setAddOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Accessory | null>(null);
   const [adjustingItem, setAdjustingItem] = useState<Accessory | null>(null);
@@ -66,15 +76,16 @@ function AccessoriesPage() {
     const q = search.trim().toLowerCase();
     return (state.accessories ?? []).filter((item) => {
       const matchCat = category === "All" || item.category === category;
+      const matchLowStock = !lowStockOnly || item.quantity <= item.min_threshold;
       const matchSearch =
         !q ||
         item.name.toLowerCase().includes(q) ||
         item.brand.toLowerCase().includes(q) ||
         item.model_sku.toLowerCase().includes(q) ||
         item.variant.toLowerCase().includes(q);
-      return matchCat && matchSearch;
+      return matchCat && matchLowStock && matchSearch;
     });
-  }, [state.accessories, category, search]);
+  }, [state.accessories, category, search, lowStockOnly]);
 
   const getSupplierName = (id: string | null) => {
     if (!id) return "—";
@@ -159,7 +170,19 @@ function AccessoriesPage() {
 
         {/* Filter Bar */}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-1.5 overflow-x-auto pb-1">
+          <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1">
+            <button
+              type="button"
+              onClick={() => setLowStockOnly((prev) => !prev)}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+                lowStockOnly
+                  ? "bg-destructive text-destructive-foreground border-destructive"
+                  : "border-destructive/40 text-destructive bg-card hover:bg-danger-soft/30"
+              }`}
+            >
+              <AlertTriangle className="size-3" />
+              Low Stock Only ({metrics.lowStockCount})
+            </button>
             {CATEGORIES.map((c) => (
               <button
                 key={c}

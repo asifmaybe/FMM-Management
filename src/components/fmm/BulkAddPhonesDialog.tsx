@@ -14,7 +14,8 @@ interface Row {
   imei: string;
   brand: string;
   model: string;
-  storage_ram: string;
+  rom: string;
+  ram: string;
   condition: PhoneCondition;
   purchase_price: string;
   selling_price: string;
@@ -24,7 +25,8 @@ const emptyRow = (): Row => ({
   imei: "",
   brand: "",
   model: "",
-  storage_ram: "",
+  rom: "",
+  ram: "",
   condition: "New",
   purchase_price: "",
   selling_price: "",
@@ -65,7 +67,7 @@ export function BulkAddPhonesDialog({
       battery_health: null,
       brand: r.brand.trim(),
       model: r.model.trim(),
-      storage_ram: r.storage_ram.trim(),
+      storage_ram: [r.rom.trim(), r.ram.trim()].filter(Boolean).join(" / ") || "Standard",
       condition: r.condition,
       source_type: "Supplier Purchase" as const,
       supplier_id: supplierId,
@@ -96,10 +98,10 @@ export function BulkAddPhonesDialog({
         </DialogHeader>
 
         <div className="max-h-[55vh] overflow-auto rounded-xl border border-border">
-          <table className="w-full min-w-[860px] text-sm">
+          <table className="w-full min-w-[920px] text-sm">
             <thead className="sticky top-0 bg-secondary/80 text-left text-xs text-muted-foreground">
               <tr>
-                {["IMEI", "Brand", "Model", "Storage / RAM", "Condition", <>Buy (<TakaSign />)</>, <>Sell (<TakaSign />)</>, ""].map((h, hi) => (
+                {["IMEI", "Brand", "Model", "ROM", "RAM", "Condition", <>Buy (<TakaSign />)</>, <>Sell (<TakaSign />)</>, ""].map((h, hi) => (
                   <th key={hi} className="px-3 py-2 font-medium">
                     {h}
                   </th>
@@ -119,7 +121,10 @@ export function BulkAddPhonesDialog({
                     <Input className="h-9" value={r.model} onChange={(e) => set(i, "model", e.target.value)} placeholder="Galaxy S23" />
                   </td>
                   <td className="px-2 py-2">
-                    <Input className="h-9" value={r.storage_ram} onChange={(e) => set(i, "storage_ram", e.target.value)} placeholder="8/256" />
+                    <Input className="h-9 w-24" value={r.rom} onChange={(e) => set(i, "rom", e.target.value)} placeholder="128GB" />
+                  </td>
+                  <td className="px-2 py-2">
+                    <Input className="h-9 w-20" value={r.ram} onChange={(e) => set(i, "ram", e.target.value)} placeholder="8GB" />
                   </td>
                   <td className="px-2 py-2">
                     <select

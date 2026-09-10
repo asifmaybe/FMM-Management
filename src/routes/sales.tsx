@@ -9,6 +9,7 @@ import {
   RotateCcw,
   Search,
   ShieldAlert,
+  ShieldCheck,
   ShoppingCart,
   TrendingUp,
   Wrench,
@@ -16,13 +17,18 @@ import {
 import { useState, useMemo } from "react";
 import { toast } from "sonner";
 import { AppShell, PageHeader } from "@/components/fmm/AppShell";
+import { NewSaleDialog } from "@/components/fmm/NewSaleDialog";
 import { RecordWarrantyDialog } from "@/components/fmm/RecordWarrantyDialog";
 import { StatusBadge } from "@/components/fmm/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useFmm } from "@/lib/fmm-store";
+import { useFmm, getTransactionPayment } from "@/lib/fmm-store";
 import { Taka } from "@/components/fmm/Taka";
-import type { WarrantyStatus } from "@/lib/fmm-types";
+import { CollectDueDialog } from "@/components/fmm/CollectDueDialog";
+import { InspectTradeInDialog } from "@/components/fmm/InspectTradeInDialog";
+import { ProcessReturnDialog } from "@/components/fmm/ProcessReturnDialog";
+import { SaleDetailDialog } from "@/components/fmm/SaleDetailDialog";
+import type { WarrantyStatus, Transaction, Phone } from "@/lib/fmm-types";
 
 export const Route = createFileRoute("/sales")({
   head: () => ({
@@ -33,38 +39,70 @@ export const Route = createFileRoute("/sales")({
       { property: "og:description", content: "Manage phone and accessory sales, trade-in exchanges, warranty claims and customer returns." },
     ],
   }),
+  validateSearch: (s: Record<string, unknown>): { customer?: string } => {
+    const customer = s["customer"];
+    return typeof customer === "string" && customer ? { customer } : {};
+  },
   component: SalesPage,
 });
 
 function SalesPage() {
   const { state, collectPayment, updateWarrantyClaim } = useFmm();
+  const { customer: customerSearchParam } = Route.useSearch();
 
   const [viewTab, setViewTab] = useState<"sales" | "exchanges" | "warranty">("sales");
   const [filter, setFilter] = useState("All");
-  const [search, setSearch] = useState("");
+  // Pre-seed search from URL param (e.g. navigating from Customers page)
+  const [search, setSearch] = useState(customerSearchParam ?? "");
   const [warrantyOpen, setWarrantyOpen] = useState(false);
+  const [saleOpen, setSaleOpen] = useState(false);
+  const [returnTx, setReturnTx] = useState<Transaction | null>(null);
+  const [collectTx, setCollectTx] = useState<Transaction | null>(null);
+  const [inspectPhone, setInspectPhone] = useState<Phone | null>(null);
+  const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
 
   const stats = useMemo(() => {
     const list = state.transactions ?? [];
-    const total = list.reduce((s, t) => s + t.amount, 0);
-    const paid = list.filter((t) => t.payment_status === "Paid").reduce((s, t) => s + t.amount, 0);
-    const pendingList = list.filter((t) => t.payment_status === "Pending");
-    const outstanding = pendingList.reduce((s, t) => s + (t.due_amount ?? t.amount), 0);
+    let total = 0;
+    let paid = 0;
+    let outstanding = 0;
+    let pendingCount = 0;
+
+    list.forEach((t) => {
+      const p = getTransactionPayment(t);
+      total += p.total;
+      paid += p.paid;
+      if (p.hasDue) {
+        outstanding += p.due;
+        pendingCount += 1;
+      }
+    });
 
     const todayStr = new Date().toDateString();
     const todayList = list.filter((t) => new Date(t.date).toDateString() === todayStr);
-    const todayTotal = todayList.reduce((s, t) => s + t.amount, 0);
+    const todayTotal = todayList.reduce((s, t) => s + getTransactionPayment(t).total, 0);
 
-    return { total, paid, outstanding, pendingCount: pendingList.length, todayTotal };
+    return { total, paid, outstanding, pendingCount, todayTotal, todayCount: todayList.length };
   }, [state.transactions]);
 
   const filteredTransactions = useMemo(() => {
     const q = search.trim().toLowerCase();
     return (state.transactions ?? []).filter((t) => {
-      const matchFilter =
-        filter === "All" ||
-        t.type === filter ||
-        t.payment_status === filter;
+      const pay = getTransactionPayment(t);
+      let matchFilter = true;
+      if (filter === "Phones") {
+        matchFilter = Boolean(t.phone_id || (t.items && t.items.some((i) => i.type === "phone")));
+      } else if (filter === "Accessories") {
+        matchFilter = !t.phone_id && Boolean(t.items && t.items.some((i) => i.type === "accessory"));
+      } else if (filter === "Paid") {
+        matchFilter = pay.isPaidInFull;
+      } else if (filter === "Pending") {
+        matchFilter = pay.hasDue;
+      } else if (filter === "Exchange") {
+        matchFilter = t.type === "Exchange" || Boolean(t.trade_in);
+      } else if (filter === "Returned") {
+        matchFilter = Boolean(t.return_info);
+      }
 
       const phone = state.phones.find((p) => p.id === t.phone_id);
       const matchSearch =
@@ -149,6 +187,12 @@ function SalesPage() {
               >
                 <ShieldAlert className="size-3.5" /> Record Warranty / Return
               </Button>
+              <Button
+                className="rounded-xl gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                onClick={() => setSaleOpen(true)}
+              >
+                <Plus className="size-3.5" /> New Sale / POS
+              </Button>
             </div>
           }
         />
@@ -168,9 +212,9 @@ function SalesPage() {
 
           <div className="rounded-xl border border-border bg-card p-5">
             <div className="flex items-start justify-between">
-              <span className="text-xs font-semibold tracking-wide text-muted-foreground">PAID IN FULL</span>
+              <span className="text-xs font-semibold tracking-wide text-muted-foreground">TOTAL COLLECTED</span>
               <span className="rounded-lg p-2 bg-secondary text-foreground">
-                <TrendingUp className="size-4" />
+                <HandCoins className="size-4" />
               </span>
             </div>
             <p className="mt-4 text-3xl font-bold text-success"><Taka value={stats.paid} /></p>
@@ -192,13 +236,13 @@ function SalesPage() {
 
           <div className="rounded-xl border border-border bg-card p-5">
             <div className="flex items-start justify-between">
-              <span className="text-xs font-semibold tracking-wide text-muted-foreground">TRADE-IN EXCHANGES</span>
-              <span className="rounded-lg p-2 bg-secondary text-foreground">
-                <ArrowLeftRight className="size-4" />
+              <span className="text-xs font-semibold tracking-wide text-muted-foreground">TODAY&apos;S SALES</span>
+              <span className="rounded-lg p-2 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                <TrendingUp className="size-4" />
               </span>
             </div>
-            <p className="mt-4 text-3xl font-bold">{state.exchanges?.length ?? 0} <span className="text-sm font-normal text-muted-foreground">records</span></p>
-            <p className="mt-2 text-xs text-muted-foreground">{state.warranty_claims?.length ?? 0} warranty claims logged</p>
+            <p className="mt-4 text-3xl font-bold"><Taka value={stats.todayTotal} /></p>
+            <p className="mt-2 text-xs text-muted-foreground">{stats.todayCount} order{stats.todayCount === 1 ? "" : "s"} completed today</p>
           </div>
         </div>
 
@@ -255,52 +299,71 @@ function SalesPage() {
         {viewTab === "sales" && (
           <div className="space-y-4">
             <div className="flex flex-wrap gap-1.5">
-              {["All", "Sale", "Exchange", "Paid", "Pending"].map((f) => (
+              {[
+                { key: "All", label: "All Orders" },
+                { key: "Phones", label: "Phones" },
+                { key: "Accessories", label: "Accessories" },
+                { key: "Paid", label: "Paid in Full" },
+                { key: "Pending", label: "Pending / Due" },
+                { key: "Exchange", label: "Trade-in Exchanges" },
+                { key: "Returned", label: "Customer Returns" },
+              ].map((item) => (
                 <button
-                  key={f}
+                  key={item.key}
                   type="button"
-                  onClick={() => setFilter(f)}
+                  onClick={() => setFilter(item.key)}
                   className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-                    filter === f
+                    filter === item.key
                       ? "bg-primary text-primary-foreground border-primary"
                       : "border-border bg-card hover:bg-secondary text-foreground"
                   }`}
                 >
-                  {f === "All" ? "All Orders" : f}
+                  {item.label}
                 </button>
               ))}
             </div>
 
             <div className="overflow-x-auto rounded-xl border border-border bg-card">
-              <table className="w-full min-w-[850px] text-sm">
+              <table className="w-full min-w-[950px] text-sm">
                 <thead className="bg-secondary/60 text-left text-muted-foreground">
                   <tr>
                     <th className="px-5 py-3 font-medium">Date</th>
                     <th className="px-5 py-3 font-medium">Type</th>
-                    <th className="px-5 py-3 font-medium">Item(s) Description</th>
+                    <th className="px-5 py-3 font-medium">Item(s) & Details</th>
                     <th className="px-5 py-3 font-medium">Customer</th>
-                    <th className="px-5 py-3 text-right font-medium">Amount</th>
-                    <th className="px-5 py-3 font-medium">Payment Status</th>
-                    <th className="px-5 py-3 text-right font-medium">Action</th>
+                    <th className="px-5 py-3 text-right font-medium">Payment Breakdown</th>
+                    <th className="px-5 py-3 font-medium">Status</th>
+                    <th className="px-5 py-3 text-right font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {filteredTransactions.map((t) => {
                     const p = phoneLabel(t.phone_id);
-                    const itemsStr =
-                      t.items && t.items.length > 0
-                        ? t.items.map((i) => `${i.quantity}x ${i.name}`).join(", ")
-                        : p.model !== "—"
-                        ? `${p.model} (${p.imei})`
-                        : "Transaction item";
+                    const isReturned = Boolean(t.return_info);
+                    const tradeInPhone = t.trade_in
+                      ? state.phones.find((ph) => ph.id === t.trade_in?.incoming_phone_id)
+                      : null;
+                    const isTradeInInInspection = tradeInPhone?.status === "In Inspection";
+                    const pay = getTransactionPayment(t);
 
                     return (
-                      <tr key={t.id} className="hover:bg-secondary/20 transition-colors">
-                        <td className="px-5 py-4 whitespace-nowrap text-muted-foreground">
+                      <tr
+                        key={t.id}
+                        className="cursor-pointer hover:bg-secondary/40 transition-colors group"
+                        onClick={() => setSelectedTx(t)}
+                      >
+                        <td className="px-5 py-4 whitespace-nowrap text-muted-foreground text-xs">
                           {new Date(t.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                         </td>
                         <td className="px-5 py-4">
-                          <StatusBadge status={t.type} />
+                          <div className="flex flex-col gap-1 items-start">
+                            <StatusBadge status={t.type} />
+                            {t.trade_in && (
+                              <span className="inline-flex items-center gap-1 rounded bg-purple-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-purple-600 dark:text-purple-400">
+                                <ArrowLeftRight className="size-2.5" /> Trade-in
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-5 py-4">
                           <div className="flex flex-wrap items-center gap-1.5 mb-1">
@@ -309,21 +372,47 @@ function SalesPage() {
                                 <span
                                   key={idx}
                                   className={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] ${
-                                    i.is_gift ? "bg-primary/10 text-primary font-semibold" : "font-semibold text-foreground"
+                                    i.is_gift
+                                      ? "bg-primary/10 text-primary font-semibold"
+                                      : "bg-secondary text-foreground font-medium"
                                   }`}
                                 >
                                   {i.is_gift ? "🎁 [Gift] " : ""}{i.quantity}x {i.name}
                                 </span>
                               ))
                             ) : (
-                              <p className="font-semibold text-foreground">{itemsStr}</p>
+                              <p className="font-semibold text-foreground group-hover:text-primary transition-colors">
+                                {p.model !== "—" ? `${p.model} (${p.imei})` : "Transaction item"}
+                              </p>
                             )}
                           </div>
-                          <div className="flex flex-wrap items-center gap-2 mt-0.5">
+
+                          {/* Trade-in Info */}
+                          {t.trade_in && (
+                            <div className="text-[11px] text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5">
+                              <span className="font-medium text-foreground">Trade-in:</span>
+                              <span>{t.trade_in.incoming_brand} {t.trade_in.incoming_model}</span>
+                              <span className="font-mono text-[10px]">({t.trade_in.incoming_imei})</span>
+                              <span className="text-purple-600 font-semibold">Valuation: <Taka value={t.trade_in.incoming_valuation} /></span>
+                            </div>
+                          )}
+
+                          {/* Return Banner */}
+                          {t.return_info && (
+                            <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg border border-rose-500/20 bg-rose-500/10 px-2 py-1 text-[11px] text-rose-700 dark:text-rose-300">
+                              <RotateCcw className="size-3 text-rose-600 shrink-0" />
+                              <span>
+                                <strong>Returned:</strong> Net refund <Taka value={t.return_info.refund_amount} /> ({t.return_info.deduction_percentage}% ded.) &bull; Disposition: <strong>{t.return_info.disposition}</strong>
+                              </span>
+                            </div>
+                          )}
+
+                          <div className="flex flex-wrap items-center gap-2 mt-1">
                             {t.campaign_id && (
                               <Link
                                 to="/campaigns/$campaignId"
                                 params={{ campaignId: t.campaign_id }}
+                                onClick={(e) => e.stopPropagation()}
                                 className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary bg-primary/10 hover:bg-primary/20 px-2 py-0.5 rounded-md transition-colors"
                               >
                                 🏷️ {state.campaigns.find((c) => c.id === t.campaign_id)?.name || "Campaign"}
@@ -336,25 +425,67 @@ function SalesPage() {
                           <p className="font-medium text-foreground">{t.customer_name}</p>
                           <p className="font-mono text-xs text-muted-foreground">{t.customer_phone}</p>
                         </td>
-                        <td className="px-5 py-4 text-right font-bold text-foreground whitespace-nowrap">
-                          <Taka value={t.amount} />
+                        <td className="px-5 py-4 text-right whitespace-nowrap">
+                          <p className="font-bold text-foreground">
+                            <Taka value={pay.total} />
+                          </p>
+                          {pay.hasDue ? (
+                            <div className="text-[11px] text-muted-foreground mt-0.5">
+                              <span>Paid: <Taka value={pay.paid} /></span>
+                              <span className="mx-1">&bull;</span>
+                              <span className="text-destructive font-semibold">Due: <Taka value={pay.due} /></span>
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-success font-medium">Paid in Full</p>
+                          )}
                         </td>
                         <td className="px-5 py-4">
-                          <StatusBadge status={t.payment_status === "Pending" ? "Payment Pending" : "Paid"} />
+                          <StatusBadge status={pay.status} />
                         </td>
                         <td className="px-5 py-4 text-right">
-                          {t.payment_status === "Pending" ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 rounded-lg text-xs gap-1 text-primary border-primary/40 hover:bg-primary/10"
-                              onClick={() => handleCollect(t.id, t.customer_name)}
-                            >
-                              <HandCoins className="size-3.5" /> Collect
-                            </Button>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">Paid</span>
-                          )}
+                          <div className="flex flex-wrap justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+                            {pay.hasDue && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs rounded-lg gap-1 text-emerald-600 border-emerald-500/30 hover:bg-emerald-500/10"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCollectTx(t);
+                                }}
+                              >
+                                <HandCoins className="size-3" /> Collect Due
+                              </Button>
+                            )}
+
+                            {t.phone_id && !isReturned && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs rounded-lg gap-1 text-rose-600 border-rose-500/30 hover:bg-rose-500/10"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setReturnTx(t);
+                                }}
+                              >
+                                <RotateCcw className="size-3" /> Return
+                              </Button>
+                            )}
+
+                            {isTradeInInInspection && tradeInPhone && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs rounded-lg gap-1 text-purple-600 border-purple-500/30 hover:bg-purple-500/10"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setInspectPhone(tradeInPhone);
+                                }}
+                              >
+                                <ShieldCheck className="size-3" /> Inspect Trade-In
+                              </Button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -376,24 +507,29 @@ function SalesPage() {
         {viewTab === "exchanges" && (
           <div className="space-y-4">
             <div className="overflow-x-auto rounded-xl border border-border bg-card">
-              <table className="w-full min-w-[900px] text-sm">
+              <table className="w-full min-w-[950px] text-sm">
                 <thead className="bg-secondary/60 text-left text-muted-foreground">
                   <tr>
                     <th className="px-5 py-3 font-medium">Date</th>
                     <th className="px-5 py-3 font-medium">Customer</th>
                     <th className="px-5 py-3 font-medium">Outgoing Phone (FMM Sold)</th>
                     <th className="px-5 py-3 font-medium">Incoming Phone (Customer Trade-in)</th>
+                    <th className="px-5 py-3 font-medium">Trade-in Status</th>
                     <th className="px-5 py-3 text-right font-medium">Incoming Valuation</th>
-                    <th className="px-5 py-3 text-right font-medium">Customer Paid (+৳)</th>
+                    <th className="px-5 py-3 text-right font-medium">Settlement</th>
+                    <th className="px-5 py-3 text-right font-medium">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {filteredExchanges.map((exc) => {
                     const outPh = state.phones.find((p) => p.id === exc.outgoing_phone_id);
                     const inPh = state.phones.find((p) => p.id === exc.incoming_phone_id);
+                    const isDowngrade = exc.difference_direction === "shop_pays_customer";
+                    const isPendingInspection = inPh?.status === "In Inspection";
+
                     return (
                       <tr key={exc.id} className="hover:bg-secondary/20 transition-colors">
-                        <td className="px-5 py-4 whitespace-nowrap text-muted-foreground">
+                        <td className="px-5 py-4 whitespace-nowrap text-muted-foreground text-xs">
                           {new Date(exc.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                         </td>
                         <td className="px-5 py-4">
@@ -405,7 +541,7 @@ function SalesPage() {
                             <div>
                               <p className="font-semibold text-foreground">{outPh.brand} {outPh.model}</p>
                               <p className="text-xs font-mono text-muted-foreground">IMEI: {outPh.imei}</p>
-                              <p className="text-xs text-muted-foreground mt-0.5">Price: <Taka value={exc.outgoing_value} /></p>
+                              <p className="text-xs text-muted-foreground mt-0.5">Sold Price: <Taka value={exc.outgoing_value} /></p>
                             </div>
                           ) : (
                             <span className="text-muted-foreground">Device #{exc.outgoing_phone_id.slice(-4)}</span>
@@ -422,18 +558,58 @@ function SalesPage() {
                             <span className="text-muted-foreground">Device #{exc.incoming_phone_id.slice(-4)}</span>
                           )}
                         </td>
+                        <td className="px-5 py-4">
+                          {inPh ? (
+                            <div className="flex flex-col gap-1 items-start">
+                              <StatusBadge status={inPh.status} />
+                              {inPh.status === "Available" && inPh.selling_price ? (
+                                <span className="text-[10px] text-muted-foreground">Resale: ৳{inPh.selling_price}</span>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </td>
                         <td className="px-5 py-4 text-right font-medium text-foreground">
                           <Taka value={exc.incoming_valuation} />
                         </td>
-                        <td className="px-5 py-4 text-right font-bold text-success">
-                          +<Taka value={exc.additional_paid} />
+                        <td className="px-5 py-4 text-right font-bold whitespace-nowrap">
+                          {isDowngrade ? (
+                            <div>
+                              <span className="text-amber-600 dark:text-amber-400">
+                                -<Taka value={exc.settlement_amount ?? exc.additional_paid} />
+                              </span>
+                              <p className="text-[10px] font-normal text-muted-foreground">Shop paid customer</p>
+                            </div>
+                          ) : (
+                            <div>
+                              <span className="text-success">
+                                +<Taka value={exc.settlement_amount ?? exc.additional_paid} />
+                              </span>
+                              <p className="text-[10px] font-normal text-muted-foreground">Customer paid shop</p>
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-5 py-4 text-right">
+                          {isPendingInspection && inPh ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs rounded-lg gap-1 text-purple-600 border-purple-500/30 hover:bg-purple-500/10"
+                              onClick={() => setInspectPhone(inPh)}
+                            >
+                              <ShieldCheck className="size-3" /> Inspect
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Completed</span>
+                          )}
                         </td>
                       </tr>
                     );
                   })}
                   {filteredExchanges.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-5 py-12 text-center text-muted-foreground">
+                      <td colSpan={8} className="px-5 py-12 text-center text-muted-foreground">
                         No phone exchange records found.
                       </td>
                     </tr>
@@ -578,6 +754,26 @@ function SalesPage() {
       </div>
 
       <RecordWarrantyDialog open={warrantyOpen} onOpenChange={setWarrantyOpen} />
+      <NewSaleDialog open={saleOpen} onOpenChange={setSaleOpen} />
+      <ProcessReturnDialog
+        transaction={returnTx}
+        open={Boolean(returnTx)}
+        onOpenChange={(open) => !open && setReturnTx(null)}
+      />
+      <CollectDueDialog
+        transaction={collectTx}
+        open={Boolean(collectTx)}
+        onOpenChange={(open) => !open && setCollectTx(null)}
+      />
+      <InspectTradeInDialog
+        phone={inspectPhone}
+        open={Boolean(inspectPhone)}
+        onOpenChange={(open) => !open && setInspectPhone(null)}
+      />
+      <SaleDetailDialog
+        transaction={selectedTx}
+        onClose={() => setSelectedTx(null)}
+      />
     </AppShell>
   );
 }

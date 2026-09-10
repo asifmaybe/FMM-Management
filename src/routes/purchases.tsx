@@ -4,15 +4,18 @@ import {
   CreditCard,
   HandCoins,
   PackageCheck,
+  Plus,
   Receipt,
   Search,
   ShoppingCart,
   TrendingDown,
   Truck,
+  X,
 } from "lucide-react";
 import { useState, useMemo } from "react";
 import { toast } from "sonner";
 import { AppShell, PageHeader } from "@/components/fmm/AppShell";
+import { RecordPurchaseDialog } from "@/components/fmm/RecordPurchaseDialog";
 import { StatusBadge } from "@/components/fmm/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,14 +32,25 @@ export const Route = createFileRoute("/purchases")({
       { property: "og:description", content: "Track stock procurement, supplier dues and purchase orders." },
     ],
   }),
+  validateSearch: (s: Record<string, unknown>): { supplier?: string; filter?: string } => {
+    const supplier = s["supplier"];
+    const filter = s["filter"];
+    const out: { supplier?: string; filter?: string } = {};
+    if (typeof supplier === "string" && supplier) out.supplier = supplier;
+    if (typeof filter === "string" && filter) out.filter = filter;
+    return out;
+  },
   component: PurchasesPage,
 });
 
 function PurchasesPage() {
   const { state, recordPurchasePayment } = useFmm();
+  const searchParams = Route.useSearch();
 
-  const [filter, setFilter] = useState("All");
+  const [filter, setFilter] = useState(searchParams.filter ?? "All");
+  const [supplierFilter, setSupplierFilter] = useState<string>(searchParams.supplier ?? "All");
   const [search, setSearch] = useState("");
+  const [recordOpen, setRecordOpen] = useState(false);
 
   // Compute live paid & due amounts for phone-type purchase batches from per-phone payment ledger
   const augmentedPurchases = useMemo(() => {
@@ -98,21 +112,32 @@ function PurchasesPage() {
   const filteredPurchases = useMemo(() => {
     const q = search.trim().toLowerCase();
     return augmentedPurchases.filter((p) => {
+      const matchSupplier = supplierFilter === "All" || p.supplier_id === supplierFilter;
       const matchFilter =
-        filter === "All" ||
-        p.type === filter ||
-        p.computedStatus === filter;
-
+        filter === "All"
+          ? true
+          : filter === "Accessory"
+            ? p.type === "Accessory"
+            : filter === "Phone"
+              ? p.type === "Phone" || (p.phone_ids && p.phone_ids.length > 0)
+              : filter === "Mixed"
+                ? p.type === "Mixed"
+                : filter === "Paid"
+                  ? p.computedStatus === "Paid"
+                  : filter === "Due"
+                    ? p.computedStatus === "Due" || p.computedStatus === "Not Paid"
+                    : true;
       const sup = state.suppliers.find((s) => s.id === p.supplier_id);
       const matchSearch =
         !q ||
         (sup && sup.name.toLowerCase().includes(q)) ||
-        p.id.toLowerCase().includes(q) ||
-        (p.notes && p.notes.toLowerCase().includes(q));
-
-      return matchFilter && matchSearch;
+        (p.notes && p.notes.toLowerCase().includes(q)) ||
+        p.id.toLowerCase().includes(q);
+      return matchSupplier && matchFilter && matchSearch;
     });
-  }, [augmentedPurchases, state.suppliers, filter, search]);
+  }, [augmentedPurchases, filter, search, supplierFilter, state.suppliers]);
+
+  const activeSupplier = state.suppliers.find((s) => s.id === supplierFilter);
 
   const getSupplier = (id: string) => {
     return state.suppliers.find((s) => s.id === id);
@@ -141,6 +166,14 @@ function PurchasesPage() {
         <PageHeader
           title="Procurement & Purchase Orders"
           subtitle="Inspect supplier inventory purchases, stock batches, and payment dues automatically recorded from stock operations."
+          actions={
+            <Button
+              onClick={() => setRecordOpen(true)}
+              className="rounded-xl text-xs gap-1.5 shadow-xs"
+            >
+              <Plus className="size-4" /> Record Purchase
+            </Button>
+          }
         />
 
         {/* Top Summary Cards */}
@@ -169,7 +202,7 @@ function PurchasesPage() {
 
           <div className="rounded-xl border border-border bg-card p-5">
             <div className="flex items-start justify-between">
-              <span className="text-xs font-semibold tracking-wide text-muted-foreground">OUTSTANDING DUE</span>
+              <span className="text-xs font-semibold tracking-wide text-muted-foreground">PURCHASE INVOICE OUTSTANDING</span>
               <span className={`rounded-lg p-2 ${stats.totalDue > 0 ? "bg-danger-soft text-destructive" : "bg-secondary text-foreground"}`}>
                 <AlertTriangle className="size-4" />
               </span>
@@ -177,7 +210,7 @@ function PurchasesPage() {
             <p className={`mt-4 text-3xl font-bold ${stats.totalDue > 0 ? "text-destructive" : "text-success"}`}>
               <Taka value={stats.totalDue} />
             </p>
-            <p className="mt-2 text-xs text-muted-foreground">Payable to suppliers</p>
+            <p className="mt-2 text-xs text-muted-foreground">Recorded invoice balance (for sold consignment payable, see Suppliers)</p>
           </div>
 
           <div className="rounded-xl border border-border bg-card p-5">
@@ -194,7 +227,7 @@ function PurchasesPage() {
 
         {/* Filter Bar */}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             {["All", "Accessory", "Phone", "Mixed", "Paid", "Due"].map((f) => (
               <button
                 key={f}
@@ -211,14 +244,38 @@ function PurchasesPage() {
             ))}
           </div>
 
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search supplier, notes, ID…"
-              className="pl-9 h-9 text-xs rounded-xl"
-            />
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={supplierFilter}
+              onChange={(e) => setSupplierFilter(e.target.value)}
+              className="h-9 rounded-xl border border-border bg-card px-3 text-xs text-foreground"
+            >
+              <option value="All">All Suppliers</option>
+              {state.suppliers.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+            {supplierFilter !== "All" && (
+              <button
+                type="button"
+                onClick={() => setSupplierFilter("All")}
+                className="flex items-center gap-1 rounded-lg bg-secondary px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+                title="Clear supplier filter"
+              >
+                <X className="size-3" /> Clear
+              </button>
+            )}
+            <div className="relative w-full sm:w-60">
+              <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search supplier, notes, ID…"
+                className="pl-9 h-9 text-xs rounded-xl"
+              />
+            </div>
           </div>
         </div>
 
@@ -254,7 +311,17 @@ function PurchasesPage() {
                       {new Date(p.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </td>
                     <td className="px-5 py-4">
-                      <p className="font-semibold text-foreground">{sup?.name || "Supplier"}</p>
+                      {sup ? (
+                        <Link
+                          to="/suppliers/$supplierId"
+                          params={{ supplierId: p.supplier_id }}
+                          className="font-semibold text-foreground hover:text-primary hover:underline transition-colors"
+                        >
+                          {sup.name}
+                        </Link>
+                      ) : (
+                        <p className="font-semibold text-foreground">Supplier</p>
+                      )}
                       <p className="text-xs text-muted-foreground">{sup?.contact || ""}</p>
                     </td>
                     <td className="px-5 py-4">
@@ -312,7 +379,15 @@ function PurchasesPage() {
               {filteredPurchases.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-5 py-12 text-center text-muted-foreground">
-                    No purchase records found.
+                    <p className="mb-3">No purchase records found{supplierFilter !== "All" && activeSupplier ? ` for ${activeSupplier.name}` : ""}.</p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl text-xs gap-1.5"
+                      onClick={() => setRecordOpen(true)}
+                    >
+                      <Plus className="size-3.5" /> Record Purchase
+                    </Button>
                   </td>
                 </tr>
               ) : null}
@@ -320,6 +395,8 @@ function PurchasesPage() {
           </table>
         </div>
       </div>
+
+      <RecordPurchaseDialog open={recordOpen} onOpenChange={setRecordOpen} />
     </AppShell>
   );
 }

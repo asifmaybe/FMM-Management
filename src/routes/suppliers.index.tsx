@@ -99,7 +99,7 @@ function SuppliersPage() {
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-4">
                   <Stat
-                    label="DUE BALANCE"
+                    label="CONSIGNMENT DUE"
                     value={
                       <span className={due > 0 ? "font-bold text-destructive" : "font-semibold text-success"}>
                         <Taka value={due} />

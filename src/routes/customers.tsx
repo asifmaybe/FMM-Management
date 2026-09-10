@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -26,7 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { useFmm } from "@/lib/fmm-store";
+import { useFmm, getTransactionPayment } from "@/lib/fmm-store";
 import { type Customer, type StoredFile, type WarrantyStatus } from "@/lib/fmm-types";
 import { Taka } from "@/components/fmm/Taka";
 
@@ -62,11 +62,15 @@ function CustomersPage() {
       const txs = (state.transactions ?? []).filter(
         (t) => t.customer_id === c.id || (t.customer_phone && t.customer_phone === c.phone) || t.customer_name === c.name,
       );
-      const paidTxs = txs.filter((t) => t.payment_status === "Paid");
-      const pendingTxs = txs.filter((t) => t.payment_status === "Pending");
 
-      const spent = paidTxs.reduce((s, t) => s + t.amount, 0);
-      const due = pendingTxs.reduce((s, t) => s + (t.due_amount ?? t.amount), 0);
+      // Use getTransactionPayment (single source of truth) for all payment calculations
+      let spent = 0;
+      let due = 0;
+      for (const t of txs) {
+        const pay = getTransactionPayment(t);
+        spent += pay.paid;
+        if (pay.hasDue) due += pay.due;
+      }
 
       totalSpend += spent;
       totalOutstanding += due;
@@ -341,9 +345,20 @@ function CustomersPage() {
       <Sheet open={!!selectedCustomer} onOpenChange={(open) => !open && setSelectedCustomer(null)}>
         <SheetContent className="sm:max-w-xl flex flex-col p-0">
           <SheetHeader className="p-6 pb-4 border-b border-border">
-            <SheetTitle className="flex items-center gap-2">
-              <Users className="size-5 text-primary" />
-              {activeCustomerDetails?.customer.name}
+            <SheetTitle className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Users className="size-5 text-primary" />
+                {activeCustomerDetails?.customer.name}
+              </div>
+              <Link
+                to="/sales"
+                search={{ customer: activeCustomerDetails?.customer.name ?? "" }}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-secondary/70 hover:bg-secondary px-3 py-1.5 text-xs font-semibold text-foreground transition-colors"
+                onClick={() => setSelectedCustomer(null)}
+              >
+                <Receipt className="size-3.5 text-primary" />
+                View in Sales
+              </Link>
             </SheetTitle>
             <div className="flex flex-wrap gap-3 text-xs text-muted-foreground mt-1">
               <span>Phone: <strong className="text-foreground">{activeCustomerDetails?.customer.phone}</strong></span>
@@ -482,7 +497,7 @@ function CustomersPage() {
                         </div>
                         <div className="text-right">
                           <p className="font-bold text-sm text-foreground"><Taka value={t.amount} /></p>
-                          <StatusBadge status={t.payment_status === "Pending" ? "Payment Pending" : "Paid"} className="mt-1" />
+                          <StatusBadge status={t.payment_status} className="mt-1" />
                         </div>
                       </div>
                     </div>

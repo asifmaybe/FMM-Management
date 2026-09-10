@@ -13,9 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AccessoriesRouteImport } from './routes/accessories'
 import { Route as AuditRouteImport } from './routes/audit'
 import { Route as CustomersRouteImport } from './routes/customers'
-import { Route as EvidenceRouteImport } from './routes/evidence'
 import { Route as ExpensesRouteImport } from './routes/expenses'
-import { Route as IntakeRouteImport } from './routes/intake'
 import { Route as PurchasesRouteImport } from './routes/purchases'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as SalesRouteImport } from './routes/sales'
@@ -46,19 +44,9 @@ const CustomersRoute = CustomersRouteImport.update({
   path: '/customers',
   getParentRoute: () => rootRouteImport,
 } as any)
-const EvidenceRoute = EvidenceRouteImport.update({
-  id: '/evidence',
-  path: '/evidence',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ExpensesRoute = ExpensesRouteImport.update({
   id: '/expenses',
   path: '/expenses',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const IntakeRoute = IntakeRouteImport.update({
-  id: '/intake',
-  path: '/intake',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PurchasesRoute = PurchasesRouteImport.update({
@@ -112,9 +100,7 @@ export interface FileRoutesByFullPath {
   '/accessories': typeof AccessoriesRoute
   '/audit': typeof AuditRoute
   '/customers': typeof CustomersRoute
-  '/evidence': typeof EvidenceRoute
   '/expenses': typeof ExpensesRoute
-  '/intake': typeof IntakeRoute
   '/purchases': typeof PurchasesRoute
   '/reports': typeof ReportsRoute
   '/sales': typeof SalesRoute
@@ -130,9 +116,7 @@ export interface FileRoutesByTo {
   '/accessories': typeof AccessoriesRoute
   '/audit': typeof AuditRoute
   '/customers': typeof CustomersRoute
-  '/evidence': typeof EvidenceRoute
   '/expenses': typeof ExpensesRoute
-  '/intake': typeof IntakeRoute
   '/purchases': typeof PurchasesRoute
   '/reports': typeof ReportsRoute
   '/sales': typeof SalesRoute
@@ -149,9 +133,7 @@ export interface FileRoutesById {
   '/accessories': typeof AccessoriesRoute
   '/audit': typeof AuditRoute
   '/customers': typeof CustomersRoute
-  '/evidence': typeof EvidenceRoute
   '/expenses': typeof ExpensesRoute
-  '/intake': typeof IntakeRoute
   '/purchases': typeof PurchasesRoute
   '/reports': typeof ReportsRoute
   '/sales': typeof SalesRoute
@@ -169,9 +151,7 @@ export interface FileRouteTypes {
     | '/accessories'
     | '/audit'
     | '/customers'
-    | '/evidence'
     | '/expenses'
-    | '/intake'
     | '/purchases'
     | '/reports'
     | '/sales'
@@ -187,9 +167,7 @@ export interface FileRouteTypes {
     | '/accessories'
     | '/audit'
     | '/customers'
-    | '/evidence'
     | '/expenses'
-    | '/intake'
     | '/purchases'
     | '/reports'
     | '/sales'
@@ -205,9 +183,7 @@ export interface FileRouteTypes {
     | '/accessories'
     | '/audit'
     | '/customers'
-    | '/evidence'
     | '/expenses'
-    | '/intake'
     | '/purchases'
     | '/reports'
     | '/sales'
@@ -224,9 +200,7 @@ export interface RootRouteChildren {
   AccessoriesRoute: typeof AccessoriesRoute
   AuditRoute: typeof AuditRoute
   CustomersRoute: typeof CustomersRoute
-  EvidenceRoute: typeof EvidenceRoute
   ExpensesRoute: typeof ExpensesRoute
-  IntakeRoute: typeof IntakeRoute
   PurchasesRoute: typeof PurchasesRoute
   ReportsRoute: typeof ReportsRoute
   SalesRoute: typeof SalesRoute
@@ -268,25 +242,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CustomersRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/evidence': {
-      id: '/evidence'
-      path: '/evidence'
-      fullPath: '/evidence'
-      preLoaderRoute: typeof EvidenceRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/expenses': {
       id: '/expenses'
       path: '/expenses'
       fullPath: '/expenses'
       preLoaderRoute: typeof ExpensesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/intake': {
-      id: '/intake'
-      path: '/intake'
-      fullPath: '/intake'
-      preLoaderRoute: typeof IntakeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/purchases': {
@@ -360,9 +320,7 @@ const rootRouteChildren: RootRouteChildren = {
   AccessoriesRoute: AccessoriesRoute,
   AuditRoute: AuditRoute,
   CustomersRoute: CustomersRoute,
-  EvidenceRoute: EvidenceRoute,
   ExpensesRoute: ExpensesRoute,
-  IntakeRoute: IntakeRoute,
   PurchasesRoute: PurchasesRoute,
   ReportsRoute: ReportsRoute,
   SalesRoute: SalesRoute,

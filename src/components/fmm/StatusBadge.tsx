@@ -4,6 +4,7 @@ const styles: Record<string, string> = {
   // Inventory & Sales
   Available: "bg-success-soft text-success",
   Paid: "bg-success-soft text-success",
+  Partial: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20",
   Due: "bg-warning-soft text-warning",
   "Not Paid": "bg-danger-soft text-destructive",
   Sold: "bg-muted text-muted-foreground",
@@ -15,6 +16,12 @@ const styles: Record<string, string> = {
   "Supplier Payment": "bg-info-soft text-info-soft-foreground",
   "Payment Pending": "bg-danger-soft text-destructive",
   Pending: "bg-danger-soft text-destructive",
+  "In Inspection": "bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20",
+  Returned: "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20",
+  "Returned to Supplier": "bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20",
+  "Rejected / Do Not Stock": "bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20",
+  Restocked: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20",
+  "Refund Only": "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border border-zinc-500/20",
 
   // Campaigns
   Active: "bg-success-soft text-success font-semibold",

@@ -1,9 +1,10 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { ArrowLeftRight, Plus, Search } from "lucide-react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { ArrowLeftRight, HandCoins, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { AppShell, PageHeader } from "@/components/fmm/AppShell";
 import { StatusBadge } from "@/components/fmm/StatusBadge";
 import { AddPhoneDialog } from "@/components/fmm/AddPhoneDialog";
+import { CustomerIntakeDialog } from "@/components/fmm/CustomerIntakeDialog";
 import { ExchangePhoneDialog } from "@/components/fmm/ExchangePhoneDialog";
 import { PhoneDetailDialog } from "@/components/fmm/PhoneDetailDialog";
 import { Button } from "@/components/ui/button";
@@ -20,23 +21,46 @@ export const Route = createFileRoute("/stock")({
       { property: "og:description", content: "Manage and track all mobile devices in stock." },
     ],
   }),
+  validateSearch: (s: Record<string, unknown>): { q?: string } => {
+    const q = s["q"];
+    return typeof q === "string" && q ? { q } : {};
+  },
   component: StockPage,
 });
 
 function StockPage() {
   const { state } = useFmm();
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("All");
+  const navigate = useNavigate();
+  const { q: initialSearch } = Route.useSearch();
+  const [query, setQuery] = useState(initialSearch ?? "");
+  const [status, setStatus] = useState("Available");
   const [supplier, setSupplier] = useState("All");
   const [open, setOpen] = useState(false);
+  const [intakeOpen, setIntakeOpen] = useState(false);
   const [exchangeOpen, setExchangeOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
+
+  const counts = useMemo(() => {
+    const available = state.phones.filter((p) => p.status === "Available").length;
+    const inInspection = state.phones.filter((p) => p.status === "In Inspection").length;
+    const sold = state.phones.filter((p) => p.status === "Sold" || p.status === "Exchange" || (p.status as string) === "Payment Pending").length;
+    const returned = state.phones.filter((p) => p.status === "Returned" || p.status === "Returned to Supplier").length;
+    const all = state.phones.length;
+    return { available, inInspection, sold, returned, all };
+  }, [state.phones]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return state.phones.filter((p) => {
       const matchQ = !q || [p.imei, p.imei_secondary ?? "", p.brand, p.model].some((v) => v.toLowerCase().includes(q));
-      const matchS = status === "All" || p.status === status;
+      const matchS =
+        status === "All"
+          ? true
+          : status === "Sold"
+            ? p.status === "Sold" || p.status === "Exchange" || (p.status as string) === "Payment Pending"
+            : status === "Returned"
+              ? p.status === "Returned" || p.status === "Returned to Supplier"
+              : p.status === status;
       const matchSup = supplier === "All" || supplierName(state, p) === supplier;
       return matchQ && matchS && matchSup;
     });
@@ -44,12 +68,20 @@ function StockPage() {
 
   const supplierOptions = ["All", ...state.suppliers.map((s) => s.name), "Bought from Customer", "Own Stock"];
 
+  const tabs = [
+    { key: "Available", label: "Available Stock", count: counts.available },
+    { key: "In Inspection", label: "In Inspection", count: counts.inInspection },
+    { key: "Sold", label: "Sold Archive", count: counts.sold },
+    { key: "Returned", label: "Returned", count: counts.returned },
+    { key: "All", label: "All Phones", count: counts.all },
+  ];
+
   return (
     <AppShell>
       <div className="mx-auto max-w-[1400px] px-6 py-8">
         <PageHeader
           title="Inventory Stock"
-          subtitle="Manage and track all mobile devices in stock."
+          subtitle="Manage and track all active mobile devices currently in stock."
           actions={
             <>
               <div className="relative">
@@ -61,6 +93,13 @@ function StockPage() {
                   className="w-[280px] rounded-xl pl-9"
                 />
               </div>
+              <Button
+                variant="outline"
+                className="rounded-xl gap-1.5"
+                onClick={() => setIntakeOpen(true)}
+              >
+                <HandCoins className="size-4" /> Buy from Customer
+              </Button>
               <Button variant="outline" className="rounded-xl gap-1.5" onClick={() => setExchangeOpen(true)}>
                 <ArrowLeftRight className="size-4" /> Exchange
               </Button>
@@ -71,16 +110,33 @@ function StockPage() {
           }
         />
 
-        <div className="mb-4 flex flex-wrap gap-2">
-          {["All", "Available", "Sold", "Exchange", "Payment Pending"].map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatus(s)}
-              className={`rounded-lg border border-border px-3 py-1.5 text-xs font-medium ${status === s ? "bg-primary text-primary-foreground" : "bg-card hover:bg-secondary"}`}
-            >
-              {s}
-            </button>
-          ))}
+        {/* Filter Navigation Tabs */}
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-2">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setStatus(tab.key)}
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  status === tab.key
+                    ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                    : "border-border bg-card hover:bg-secondary text-foreground"
+                }`}
+              >
+                <span>{tab.label}</span>
+                <span
+                  className={`rounded-full px-1.5 py-0.2 text-[10px] font-semibold ${
+                    status === tab.key
+                      ? "bg-primary-foreground/20 text-primary-foreground"
+                      : "bg-secondary text-muted-foreground"
+                  }`}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
+
           <select
             value={supplier}
             onChange={(e) => setSupplier(e.target.value)}
@@ -93,6 +149,25 @@ function StockPage() {
             ))}
           </select>
         </div>
+
+        {/* Information banner when viewing sold device archive */}
+        {status === "Sold" && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-xs text-blue-900 dark:text-blue-200">
+            <div className="flex items-center gap-2">
+              <span className="text-base">📦</span>
+              <span>
+                <strong>Sold Devices Archive:</strong> These devices have been sold and are no longer in physical inventory. They are preserved here for IMEI lookup and warranty tracking. To view customer invoices, collect dues, and handle order payments, visit{" "}
+                <strong>Sales & Orders</strong>.
+              </span>
+            </div>
+            <Link
+              to="/sales"
+              className="inline-flex items-center gap-1 font-semibold text-primary hover:underline whitespace-nowrap"
+            >
+              Open Sales & Orders &rarr;
+            </Link>
+          </div>
+        )}
 
         <div className="overflow-x-auto rounded-xl border border-border bg-card">
           <table className="w-full min-w-[900px] text-sm">
@@ -150,6 +225,7 @@ function StockPage() {
 
       <ExchangePhoneDialog open={exchangeOpen} onOpenChange={setExchangeOpen} />
       <AddPhoneDialog open={open} onOpenChange={setOpen} />
+      <CustomerIntakeDialog open={intakeOpen} onOpenChange={setIntakeOpen} />
       <PhoneDetailDialog phoneId={detailId} onClose={() => setDetailId(null)} />
     </AppShell>
   );

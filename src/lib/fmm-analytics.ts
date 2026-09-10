@@ -1,4 +1,5 @@
 import type { FmmState, Phone, Transaction } from "./fmm-types";
+import { getTransactionPayment } from "./fmm-store";
 
 export interface PeriodPoint {
   key: string;
@@ -6,6 +7,7 @@ export interface PeriodPoint {
   start: Date;
   end: Date;
   revenue: number;
+  cashInflow?: number;
   cost: number;
   profit: number;
   units: number;
@@ -30,24 +32,51 @@ export function phoneOf(state: FmmState, t: Transaction): Phone | undefined {
   return state.phones.find((p) => p.id === t.phone_id);
 }
 
+/**
+ * Derives total acquisition COGS for a transaction across phones, accessories, and free gifts.
+ */
+export function getTransactionCost(state: FmmState, t: Transaction): number {
+  if (t.items && t.items.length > 0) {
+    return t.items.reduce((sum, it) => {
+      const cost = it.cost_price || 0;
+      const qty = it.quantity || 1;
+      return sum + cost * qty;
+    }, 0);
+  }
+  // Fallback for legacy single-phone transactions without items array
+  return phoneOf(state, t)?.purchase_price ?? 0;
+}
+
 function bucketFor(state: FmmState, start: Date, end: Date, label: string, key: string): PeriodPoint {
   const txs = state.transactions.filter((t) => {
     const d = new Date(t.date).getTime();
     return d >= start.getTime() && d < end.getTime();
   });
-  const paid = txs.filter((t) => t.payment_status === "Paid");
-  const revenue = paid.reduce((s, t) => s + t.amount, 0);
-  const cost = paid.reduce((s, t) => s + (phoneOf(state, t)?.purchase_price ?? 0), 0);
+
+  let revenue = 0;
+  let cashInflow = 0;
+  let cost = 0;
+  let pending = 0;
+
+  for (const t of txs) {
+    const pay = getTransactionPayment(t);
+    revenue += pay.total;
+    cashInflow += pay.paid;
+    pending += pay.due;
+    cost += getTransactionCost(state, t);
+  }
+
   return {
     key,
     label,
     start,
     end,
     revenue,
+    cashInflow,
     cost,
     profit: revenue - cost,
     units: txs.length,
-    pending: txs.filter((t) => t.payment_status === "Pending").reduce((s, t) => s + t.amount, 0),
+    pending,
   };
 }
 
@@ -83,6 +112,7 @@ export interface DayReport {
   date: Date;
   transactions: Transaction[];
   revenue: number;
+  cashInflow: number;
   profit: number;
   pending: number;
   phonesAdded: Phone[];
@@ -101,15 +131,29 @@ export function buildDayReport(state: FmmState, date: Date): DayReport {
   };
 
   const transactions = state.transactions.filter((t) => within(t.date));
-  const paid = transactions.filter((t) => t.payment_status === "Paid");
   const phonesAdded = state.phones.filter((p) => within(p.created_at));
+
+  let revenue = 0;
+  let cashInflow = 0;
+  let profit = 0;
+  let pending = 0;
+
+  for (const t of transactions) {
+    const pay = getTransactionPayment(t);
+    const cost = getTransactionCost(state, t);
+    revenue += pay.total;
+    cashInflow += pay.paid;
+    profit += (pay.total - cost);
+    pending += pay.due;
+  }
 
   return {
     date: start,
     transactions,
-    revenue: paid.reduce((s, t) => s + t.amount, 0),
-    profit: paid.reduce((s, t) => s + (t.amount - (phoneOf(state, t)?.purchase_price ?? 0)), 0),
-    pending: transactions.filter((t) => t.payment_status === "Pending").reduce((s, t) => s + t.amount, 0),
+    revenue,
+    cashInflow,
+    profit,
+    pending,
     phonesAdded,
     purchaseSpend: phonesAdded.reduce((s, p) => s + p.purchase_price, 0),
     suppliersAdded: state.suppliers.filter((s) => within(s.created_at)).length,

@@ -16,16 +16,21 @@ import type {
   FmmState,
   PaymentStatus,
   Phone,
+  PhoneStatus,
   Purchase,
+  ReturnDisposition,
   SaleItem,
   Settings,
   StoredFile,
   Supplier,
   SupplierPayment,
   Transaction,
+  TransactionReturnInfo,
+  TransactionTradeIn,
   TransactionType,
   WarrantyClaim,
 } from "./fmm-types";
+import { FMM_APP_VERSION, FMM_BACKUP_VERSION, verifyBackupPayloadString } from "./fmm-backup";
 
 
 export interface FmmContextValue {
@@ -34,7 +39,13 @@ export interface FmmContextValue {
   addPhone: (p: Omit<Phone, "id" | "created_at" | "updated_at">) => void;
   addPhonesBatch: (
     phones: Omit<Phone, "id" | "created_at" | "updated_at">[],
-    purchaseOptions?: { supplier_id: string; notes?: string; campaign_id?: string | null },
+    purchaseOptions?: {
+      supplier_id: string;
+      notes?: string;
+      campaign_id?: string | null | undefined;
+      additional_cost?: number;
+      paid_amount?: number;
+    },
   ) => Phone[];
   addSupplier: (s: Omit<Supplier, "id" | "created_at">) => void;
   recordSale: (input: {
@@ -46,6 +57,8 @@ export interface FmmContextValue {
     amount: number;
     payment_status: PaymentStatus;
     payment_method?: string;
+    paid_amount?: number;
+    due_amount?: number;
     campaign_id?: string | null;
     notes?: string;
     /** Optional accessories bundled with this phone sale */
@@ -59,7 +72,7 @@ export interface FmmContextValue {
     phone_id?: string | null;
     purchase_id?: string | null;
   }) => void;
-  collectPayment: (transaction_id: string) => void;
+  collectPayment: (transaction_id: string, amount?: number) => void;
   saveCustomerPurchase: (
     purchase: Omit<CustomerPurchase, "id" | "created_at" | "phone_id">,
     phone: Omit<Phone, "id" | "created_at" | "updated_at" | "customer_purchase_id" | "source_type" | "status" | "supplier_id">,
@@ -111,8 +124,22 @@ export interface FmmContextValue {
   recordWarrantyClaim: (claim: Omit<WarrantyClaim, "id" | "created_at">) => void;
   updateWarrantyClaim: (id: string, patch: Partial<WarrantyClaim>) => void;
   recordReturn: (ret: Omit<CustomerReturn, "id" | "created_at">) => void;
+  processCustomerReturn: (
+    transactionId: string,
+    input: {
+      return_date?: string | undefined;
+      reason: string;
+      deduction_percentage: number;
+      deduction_amount: number;
+      refund_amount: number;
+      disposition: ReturnDisposition;
+      new_resale_price?: number | undefined;
+      supplier_id?: string | null | undefined;
+      notes?: string | undefined;
+    },
+  ) => void;
 
-  // Exchange actions
+  // Exchange & Trade-In actions
   recordExchange: (
     exchange: Omit<ExchangeRecord, "id" | "created_at">,
     incomingPhone: Omit<Phone, "id" | "created_at" | "updated_at">,
@@ -126,6 +153,13 @@ export interface FmmContextValue {
       phone_photos?: StoredFile[];
     },
   ) => void;
+  inspectTradeInDevice: (
+    incomingPhoneId: string,
+    decision: { action: "Restock" | "Reject"; new_selling_price?: number | undefined; condition_notes?: string | undefined },
+  ) => void;
+
+  // Transaction editing
+  updateTransaction: (transactionId: string, patch: Partial<Transaction>) => void;
 
   // System & Settings
   updateSettings: (patch: Partial<Settings>) => void;
@@ -185,16 +219,30 @@ export function FmmProvider({ children }: { children: ReactNode }) {
           const hydrated: FmmState = {
             ...loaded,
             suppliers: loaded.suppliers ?? seed.suppliers,
-            phones: (loaded.phones ?? []).map((p) => ({
-              ...p,
-              sold_price: p.sold_price ?? (p.status === "Sold" ? (p.selling_price ?? p.purchase_price) : null),
-              warranty_days: p.warranty_days ?? 30,
-            })),
+            phones: (loaded.phones ?? []).map((p) => {
+              const isPaymentPending = (p.status as string) === "Payment Pending";
+              const status: PhoneStatus = isPaymentPending ? "Sold" : p.status;
+              return {
+                ...p,
+                status,
+                sold_price: p.sold_price ?? (status === "Sold" ? (p.selling_price ?? p.purchase_price) : null),
+                warranty_days: p.warranty_days ?? 30,
+              };
+            }),
             accessories: loaded.accessories ?? seed.accessories,
             accessory_movements: loaded.accessory_movements ?? seed.accessory_movements,
             customers,
             purchases: loaded.purchases ?? seed.purchases,
-            transactions: loaded.transactions ?? seed.transactions,
+            transactions: (loaded.transactions ?? seed.transactions).map((t) => {
+              const summary = getTransactionPayment(t);
+              return {
+                ...t,
+                amount: summary.total,
+                paid_amount: summary.paid,
+                due_amount: summary.due,
+                payment_status: summary.status,
+              };
+            }),
             supplier_payments: loaded.supplier_payments ?? [],
             customer_purchases: loaded.customer_purchases ?? seed.customer_purchases,
             expenses: loaded.expenses ?? seed.expenses,
@@ -243,21 +291,6 @@ export function FmmProvider({ children }: { children: ReactNode }) {
   // -------------------------------------------------------------
   // Phone Actions
   // -------------------------------------------------------------
-  const addPhone = useCallback<FmmContextValue["addPhone"]>((p) => {
-    setState((prev) => {
-      const now = new Date().toISOString();
-      const phone: Phone = { ...p, id: uid("ph"), created_at: now, updated_at: now };
-      return {
-        ...prev,
-        phones: [phone, ...prev.phones],
-        audit_log: [
-          log("Added", "phone", phone.id, `${phone.brand} ${phone.model} (IMEI: …${phone.imei.slice(-4)})`, phone.purchase_price),
-          ...prev.audit_log,
-        ],
-      };
-    });
-  }, []);
-
   const addPhonesBatch = useCallback<FmmContextValue["addPhonesBatch"]>((phoneList, purchaseOptions) => {
     const now = new Date().toISOString();
     const createdPhones: Phone[] = phoneList.map((p) => ({
@@ -271,6 +304,11 @@ export function FmmProvider({ children }: { children: ReactNode }) {
 
     let newPurchase: Purchase | null = null;
     if (purchaseOptions && purchaseOptions.supplier_id) {
+      const addCost = purchaseOptions.additional_cost ?? 0;
+      const initialPaid = purchaseOptions.paid_amount ?? 0;
+      const initialDue = Math.max(0, totalAmount + addCost - initialPaid);
+      const initialStatus: "Paid" | "Due" | "Not Paid" = initialDue === 0 ? "Paid" : initialPaid > 0 ? "Due" : "Not Paid";
+
       newPurchase = {
         id: uid("pur"),
         supplier_id: purchaseOptions.supplier_id,
@@ -286,12 +324,12 @@ export function FmmProvider({ children }: { children: ReactNode }) {
           total: p.purchase_price,
         })),
         total_amount: totalAmount,
-        additional_cost: 0,
-        paid_amount: 0,
-        due_amount: totalAmount,
-        payment_status: "Not Paid",
+        additional_cost: addCost,
+        paid_amount: initialPaid,
+        due_amount: initialDue,
+        payment_status: initialStatus,
         campaign_id: purchaseOptions.campaign_id ?? null,
-        notes: purchaseOptions.notes || `Bulk import of ${createdPhones.length} phone(s)`,
+        notes: purchaseOptions.notes || `Procurement of ${createdPhones.length} phone(s)`,
         created_at: now,
       };
     }
@@ -303,21 +341,54 @@ export function FmmProvider({ children }: { children: ReactNode }) {
           log("Added", "phone", p.id, `${p.brand} ${p.model} (IMEI: …${p.imei.slice(-4)})`, p.purchase_price),
         ),
       ];
+      const supplierPayments = [...(prev.supplier_payments ?? [])];
+
       if (newPurchase) {
         auditLogs.unshift(
           log("Purchase Created", "purchase", newPurchase.id, `Phone batch from ${supplier?.name || "Supplier"} (${taka(totalAmount)} BDT)`, totalAmount),
         );
+        if (newPurchase.paid_amount > 0) {
+          supplierPayments.unshift({
+            id: uid("sp"),
+            supplier_id: newPurchase.supplier_id,
+            amount: newPurchase.paid_amount,
+            date: now,
+            notes: `Advance payment for purchase ${newPurchase.id}`,
+            purchase_id: newPurchase.id,
+            phone_id: null,
+            created_at: now,
+          });
+          auditLogs.unshift(
+            log("Supplier Payment", "purchase", newPurchase.id, `Paid ${taka(newPurchase.paid_amount)} BDT towards purchase order`, newPurchase.paid_amount),
+          );
+        }
       }
+
       return {
         ...prev,
         phones: [...createdPhones, ...prev.phones],
         purchases: newPurchase ? [newPurchase, ...(prev.purchases ?? [])] : prev.purchases,
+        supplier_payments: supplierPayments,
         audit_log: [...auditLogs, ...prev.audit_log],
       };
     });
 
     return createdPhones;
   }, []);
+
+  const addPhone = useCallback<FmmContextValue["addPhone"]>((p) => {
+    const isSupplierPurchase = p.source_type === "Supplier Purchase" && Boolean(p.supplier_id);
+    addPhonesBatch(
+      [p],
+      isSupplierPurchase && p.supplier_id
+        ? {
+            supplier_id: p.supplier_id,
+            notes: `Phone purchase: ${p.brand} ${p.model} (IMEI: …${p.imei.slice(-4)})`,
+            campaign_id: p.campaign_id ?? null,
+          }
+        : undefined,
+    );
+  }, [addPhonesBatch]);
 
   const addSupplier = useCallback<FmmContextValue["addSupplier"]>((s) => {
     setState((prev) => {
@@ -381,6 +452,18 @@ export function FmmProvider({ children }: { children: ReactNode }) {
       }
 
       const totalAmount = input.amount + accTotal;
+      const paidAmount =
+        input.paid_amount !== undefined
+          ? input.paid_amount
+          : input.payment_status === "Paid"
+          ? totalAmount
+          : 0;
+      const dueAmount =
+        input.due_amount !== undefined
+          ? input.due_amount
+          : Math.max(0, totalAmount - paidAmount);
+      const computedPaymentStatus: PaymentStatus =
+        dueAmount === 0 ? "Paid" : paidAmount > 0 ? "Partial" : "Pending";
 
       const tx: Transaction = {
         id: txId,
@@ -390,10 +473,10 @@ export function FmmProvider({ children }: { children: ReactNode }) {
         customer_phone: input.customer_phone,
         customer_id: input.customer_id ?? null,
         amount: totalAmount,
-        payment_status: input.payment_status,
+        payment_status: computedPaymentStatus,
         payment_method: input.payment_method || "Cash",
-        paid_amount: input.payment_status === "Paid" ? totalAmount : 0,
-        due_amount: input.payment_status === "Pending" ? totalAmount : 0,
+        paid_amount: paidAmount,
+        due_amount: dueAmount,
         campaign_id: input.campaign_id ?? null,
         items: [
           {
@@ -418,8 +501,8 @@ export function FmmProvider({ children }: { children: ReactNode }) {
         return a;
       });
 
-      const status: Phone["status"] =
-        input.payment_status === "Pending" ? "Payment Pending" : input.type === "Exchange" ? "Exchange" : "Sold";
+      // Phone is marked as Sold regardless of whether payment is fully paid or partial/pending
+      const status: Phone["status"] = input.type === "Exchange" ? "Exchange" : "Sold";
       const label = `${phone.brand} ${phone.model} (IMEI: …${phone.imei.slice(-4)})${
         accItems.length > 0 ? ` + ${accItems.map((a) => `${a.quantity}x ${a.name}`).join(", ")}}` : ""
       }`;
@@ -434,7 +517,7 @@ export function FmmProvider({ children }: { children: ReactNode }) {
         transactions: [tx, ...prev.transactions],
         audit_log: [
           log(
-            input.payment_status === "Pending" ? "Payment Pending" : input.type === "Exchange" ? "Exchange" : "Sold",
+            computedPaymentStatus === "Paid" ? "Sold" : "Payment Pending",
             "transaction",
             txId,
             label,
@@ -497,16 +580,33 @@ export function FmmProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const collectPayment = useCallback<FmmContextValue["collectPayment"]>((transaction_id) => {
+  const collectPayment = useCallback<FmmContextValue["collectPayment"]>((transaction_id, amount) => {
     setState((prev) => {
       const tx = prev.transactions.find((t) => t.id === transaction_id);
       if (!tx) return prev;
       const now = new Date().toISOString();
+      const currentDue = tx.due_amount !== undefined ? tx.due_amount : (tx.payment_status === "Paid" ? 0 : tx.amount);
+      const payAmt = amount !== undefined && amount > 0 ? Math.min(amount, currentDue) : currentDue;
+      const currentPaid = tx.paid_amount ?? (tx.amount - currentDue);
+      const newPaid = currentPaid + payAmt;
+      const newDue = Math.max(0, currentDue - payAmt);
+      const newStatus: PaymentStatus = newDue === 0 ? "Paid" : "Partial";
+
       const phone = prev.phones.find((p) => p.id === tx.phone_id);
       return {
         ...prev,
         transactions: prev.transactions.map((t) =>
-          t.id === transaction_id ? { ...t, payment_status: "Paid" as PaymentStatus, paid_amount: t.amount, due_amount: 0 } : t,
+          t.id === transaction_id
+            ? {
+                ...t,
+                payment_status: newStatus,
+                paid_amount: newPaid,
+                due_amount: newDue,
+                notes: t.notes
+                  ? `${t.notes} · Collected ${taka(payAmt)} on ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+                  : `Collected ${taka(payAmt)} on ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+              }
+            : t,
         ),
         phones: prev.phones.map((p) =>
           p.id === tx.phone_id ? { ...p, status: tx.type === "Exchange" ? "Exchange" : "Sold", updated_at: now } : p,
@@ -516,8 +616,8 @@ export function FmmProvider({ children }: { children: ReactNode }) {
             "Payment Collected",
             "transaction",
             tx.id,
-            `${tx.customer_name} — ${phone ? `${phone.brand} ${phone.model}` : "device"}`,
-            tx.amount,
+            `${tx.customer_name} — paid ${taka(payAmt)} (${phone ? `${phone.brand} ${phone.model}` : "device"})${newDue > 0 ? `, remaining due ${taka(newDue)}` : " (Cleared)"}`,
+            payAmt,
           ),
           ...prev.audit_log,
         ],
@@ -1034,10 +1134,11 @@ export function FmmProvider({ children }: { children: ReactNode }) {
       const txId = uid("tx");
       const cpId = uid("cp");
 
+      // Trade-in incoming phone enters "In Inspection" status (NOT available immediately)
       const inPhone: Phone = {
         ...incomingPhone,
         id: incomingId,
-        status: "Available",
+        status: "In Inspection",
         source_type: "Buy from Customer",
         supplier_id: null,
         customer_purchase_id: cpId,
@@ -1046,11 +1147,20 @@ export function FmmProvider({ children }: { children: ReactNode }) {
       };
 
       const outPhone = prev.phones.find((p) => p.id === outgoingPhoneId);
+      const diff = exchange.outgoing_value - exchange.incoming_valuation;
+      const diffDirection: "customer_pays_shop" | "shop_pays_customer" =
+        diff >= 0 ? "customer_pays_shop" : "shop_pays_customer";
+      const settlementAmt = Math.abs(diff);
+
       const excRecord: ExchangeRecord = {
         ...exchange,
         id: exchangeId,
         incoming_phone_id: incomingId,
         outgoing_phone_id: outgoingPhoneId,
+        difference_direction: diffDirection,
+        settlement_amount: settlementAmt,
+        additional_paid: diffDirection === "customer_pays_shop" ? settlementAmt : 0,
+        inspection_status: "Pending Inspection",
         created_at: now,
       };
 
@@ -1077,13 +1187,37 @@ export function FmmProvider({ children }: { children: ReactNode }) {
         customer_name: exchange.customer_name,
         customer_phone: exchange.customer_phone,
         customer_id: exchange.customer_id ?? null,
-        amount: exchange.additional_paid,
+        amount: exchange.outgoing_value,
         payment_status: "Paid",
         payment_method: "Cash",
-        paid_amount: exchange.additional_paid,
+        paid_amount: diffDirection === "customer_pays_shop" ? settlementAmt : 0,
         due_amount: 0,
+        items: [
+          {
+            type: "phone",
+            id: outgoingPhoneId,
+            name: `${outPhone ? `${outPhone.brand} ${outPhone.model}` : "Outgoing Phone"}`,
+            quantity: 1,
+            unit_price: exchange.outgoing_value,
+            cost_price: outPhone?.purchase_price ?? 0,
+            subtotal: exchange.outgoing_value,
+          },
+        ],
+        trade_in: {
+          incoming_phone_id: incomingId,
+          incoming_brand: incomingPhone.brand,
+          incoming_model: incomingPhone.model,
+          incoming_imei: incomingPhone.imei,
+          incoming_valuation: exchange.incoming_valuation,
+          difference_direction: diffDirection,
+          settlement_amount: settlementAmt,
+          inspection_status: "Pending Inspection",
+        },
         date: now,
-        notes: `Exchanged with incoming ${incomingPhone.brand} ${incomingPhone.model} (Valued at ${taka(exchange.incoming_valuation)})`,
+        notes:
+          diffDirection === "customer_pays_shop"
+            ? `Trade-in exchange: Outgoing ${outPhone?.brand} ${outPhone?.model} (${taka(exchange.outgoing_value)}) for ${incomingPhone.brand} ${incomingPhone.model} (Valued ${taka(exchange.incoming_valuation)}). Customer paid shop ${taka(settlementAmt)}.`
+            : `Trade-in downgrade exchange: Outgoing ${outPhone?.brand} ${outPhone?.model} (${taka(exchange.outgoing_value)}) for ${incomingPhone.brand} ${incomingPhone.model} (Valued ${taka(exchange.incoming_valuation)}). Shop owes/paid customer ${taka(settlementAmt)}.`,
       };
 
       return {
@@ -1093,8 +1227,218 @@ export function FmmProvider({ children }: { children: ReactNode }) {
         exchanges: [excRecord, ...(prev.exchanges ?? [])],
         transactions: [tx, ...prev.transactions],
         audit_log: [
-          log("Exchange", "exchange", exchangeId, `Exchanged ${outPhone ? `${outPhone.brand} ${outPhone.model}` : "device"} for ${inPhone.brand} ${inPhone.model} (+${taka(exchange.additional_paid)} BDT)`, exchange.additional_paid),
+          log(
+            "Exchange",
+            "exchange",
+            exchangeId,
+            diffDirection === "customer_pays_shop"
+              ? `Exchanged ${outPhone ? `${outPhone.brand} ${outPhone.model}` : "device"} for ${inPhone.brand} ${inPhone.model} (+${taka(settlementAmt)} BDT customer payment)`
+              : `Exchanged ${outPhone ? `${outPhone.brand} ${outPhone.model}` : "device"} for ${inPhone.brand} ${inPhone.model} (-${taka(settlementAmt)} BDT shop payout)`,
+            settlementAmt,
+          ),
           log("Bought from Customer", "customer_purchase", cpId, `Trade-in ${inPhone.brand} ${inPhone.model} from ${exchange.customer_name}`, exchange.incoming_valuation),
+          ...prev.audit_log,
+        ],
+      };
+    });
+  }, []);
+
+  const inspectTradeInDevice = useCallback<FmmContextValue["inspectTradeInDevice"]>((incomingPhoneId, decision) => {
+    setState((prev) => {
+      const now = new Date().toISOString();
+      const phone = prev.phones.find((p) => p.id === incomingPhoneId);
+      if (!phone) return prev;
+
+      const newStatus: PhoneStatus = decision.action === "Restock" ? "Available" : "Rejected / Do Not Stock";
+      const newSellingPrice = decision.action === "Restock" ? (decision.new_selling_price ?? phone.selling_price) : phone.selling_price;
+      const inspectionStatus: "Approved & Restocked" | "Rejected" = decision.action === "Restock" ? "Approved & Restocked" : "Rejected";
+
+      const updatedPhones = prev.phones.map((p) =>
+        p.id === incomingPhoneId
+          ? {
+              ...p,
+              status: newStatus,
+              selling_price: newSellingPrice,
+              condition_notes: decision.condition_notes ? `${p.condition_notes} · ${decision.condition_notes}` : p.condition_notes,
+              updated_at: now,
+            }
+          : p,
+      );
+
+      const updatedExchanges = prev.exchanges.map((e) =>
+        e.incoming_phone_id === incomingPhoneId ? { ...e, inspection_status: inspectionStatus } : e,
+      );
+
+      const updatedTransactions = prev.transactions.map((t) =>
+        t.trade_in && t.trade_in.incoming_phone_id === incomingPhoneId
+          ? { ...t, trade_in: { ...t.trade_in, inspection_status: inspectionStatus } }
+          : t,
+      );
+
+      return {
+        ...prev,
+        phones: updatedPhones,
+        exchanges: updatedExchanges,
+        transactions: updatedTransactions,
+        audit_log: [
+          log(
+            "Trade-In Inspected",
+            "phone",
+            incomingPhoneId,
+            `${phone.brand} ${phone.model} (${phone.imei}) — ${decision.action === "Restock" ? `Approved & Restocked at ${taka(newSellingPrice ?? 0)} BDT` : "Rejected / Do Not Stock"}`,
+            decision.action === "Restock" ? newSellingPrice : null,
+          ),
+          ...prev.audit_log,
+        ],
+      };
+    });
+  }, []);
+
+  const processCustomerReturn = useCallback<FmmContextValue["processCustomerReturn"]>((transactionId, input) => {
+    setState((prev) => {
+      const now = new Date().toISOString();
+      const tx = prev.transactions.find((t) => t.id === transactionId);
+      if (!tx) return prev;
+      const phone = prev.phones.find((p) => p.id === tx.phone_id);
+      const retId = uid("ret");
+
+      const returnRecord: CustomerReturn = {
+        id: retId,
+        customer_name: tx.customer_name,
+        customer_phone: tx.customer_phone,
+        customer_id: tx.customer_id ?? null,
+        transaction_id: tx.id,
+        phone_id: tx.phone_id,
+        accessory_id: null,
+        return_date: input.return_date || now,
+        reason: input.reason,
+        action: "Refund",
+        original_sale_price: tx.amount,
+        deduction_percentage: input.deduction_percentage,
+        deduction_amount: input.deduction_amount,
+        refund_amount: input.refund_amount,
+        disposition: input.disposition,
+        supplier_id: input.supplier_id ?? null,
+        new_resale_price: input.new_resale_price ?? null,
+        notes: input.notes ?? "",
+        created_at: now,
+      };
+
+      let newPhoneStatus: PhoneStatus = "Returned";
+      let newSellingPrice = phone?.selling_price ?? null;
+
+      if (input.disposition === "Restocked") {
+        newPhoneStatus = "Available";
+        if (input.new_resale_price && input.new_resale_price > 0) {
+          newSellingPrice = input.new_resale_price;
+        }
+      } else if (input.disposition === "Returned to Supplier") {
+        newPhoneStatus = "Returned to Supplier";
+      } else {
+        newPhoneStatus = "Returned";
+      }
+
+      const updatedPhones = prev.phones.map((p) => {
+        if (p.id === tx.phone_id) {
+          return {
+            ...p,
+            status: newPhoneStatus,
+            selling_price: newSellingPrice,
+            condition_notes:
+              input.disposition === "Restocked"
+                ? `${p.condition_notes} · Restocked from customer return on ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+                : p.condition_notes,
+            updated_at: now,
+          };
+        }
+        return p;
+      });
+
+      const returnInfo: TransactionReturnInfo = {
+        return_id: retId,
+        return_date: input.return_date || now,
+        original_sold_price: tx.amount,
+        deduction_percentage: input.deduction_percentage,
+        deduction_amount: input.deduction_amount,
+        refund_amount: input.refund_amount,
+        reason: input.reason,
+        disposition: input.disposition,
+        supplier_id: input.supplier_id ?? null,
+        new_resale_price: input.new_resale_price ?? null,
+      };
+
+      const updatedTransactions = prev.transactions.map((t) =>
+        t.id === transactionId
+          ? {
+              ...t,
+              return_info: returnInfo,
+              notes: t.notes
+                ? `${t.notes} · Returned on ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })} (Refund: ${taka(input.refund_amount)}, Deduction: ${input.deduction_percentage}%)`
+                : `Returned on ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })} (Refund: ${taka(input.refund_amount)})`,
+            }
+          : t,
+      );
+
+      const auditEntries: AuditEntry[] = [
+        log(
+          "Return",
+          "transaction",
+          transactionId,
+          `Customer return for ${phone ? `${phone.brand} ${phone.model}` : "device"} — Refund ${taka(input.refund_amount)} (${input.deduction_percentage}% deduction: ${taka(input.deduction_amount)}). Disposition: ${input.disposition}`,
+          input.refund_amount,
+        ),
+      ];
+
+      if (input.disposition === "Restocked" && phone) {
+        auditEntries.push(
+          log("Device Restocked", "phone", phone.id, `${phone.brand} ${phone.model} (${phone.imei}) restocked at ${taka(newSellingPrice ?? 0)} BDT`, newSellingPrice),
+        );
+      } else if (input.disposition === "Returned to Supplier" && phone && input.supplier_id) {
+        const sup = prev.suppliers.find((s) => s.id === input.supplier_id);
+        auditEntries.push(
+          log("Returned to Supplier", "supplier", input.supplier_id, `${phone.brand} ${phone.model} (${phone.imei}) returned to ${sup?.name || "Supplier"}`, input.refund_amount),
+        );
+      }
+
+      return {
+        ...prev,
+        phones: updatedPhones,
+        transactions: updatedTransactions,
+        returns: [returnRecord, ...(prev.returns ?? [])],
+        audit_log: [...auditEntries, ...prev.audit_log],
+      };
+    });
+  }, []);
+
+  const updateTransaction = useCallback<FmmContextValue["updateTransaction"]>((transactionId, patch) => {
+    setState((prev) => {
+      const tx = prev.transactions.find((t) => t.id === transactionId);
+      if (!tx) return prev;
+      const now = new Date().toISOString();
+
+      const updatedTransactions = prev.transactions.map((t) =>
+        t.id === transactionId ? { ...t, ...patch } : t,
+      );
+
+      let updatedPhones = prev.phones;
+      if (patch.amount !== undefined && tx.phone_id) {
+        updatedPhones = prev.phones.map((p) =>
+          p.id === tx.phone_id ? { ...p, sold_price: patch.amount ?? null, updated_at: now } : p,
+        );
+      }
+
+      return {
+        ...prev,
+        transactions: updatedTransactions,
+        phones: updatedPhones,
+        audit_log: [
+          log(
+            "Transaction Updated",
+            "transaction",
+            transactionId,
+            `Transaction #${transactionId.slice(-6)} details updated`,
+            patch.amount ?? tx.amount,
+          ),
           ...prev.audit_log,
         ],
       };
@@ -1111,11 +1455,68 @@ export function FmmProvider({ children }: { children: ReactNode }) {
   const runBackup = useCallback<FmmContextValue["runBackup"]>(
     async (auto = false) => {
       let created: BackupRecord | null = null;
+      let verifyErr: string | null = null;
+
       setState((prev) => {
         const now = new Date();
-        const payload = JSON.stringify({ format: "fmmbackup", version: 2, created_at: now.toISOString(), data: prev });
-        const filename = `fmm-${now.toISOString().slice(0, 19).replace(/[:T]/g, "-")}.fmmbackup`;
-        created = { id: uid("bk"), timestamp: now.toISOString(), filename, size: payload.length };
+        const filename = `fmm-${now.toISOString().slice(0, 19).replace(/[:T]/g, "-")}.fmm`;
+
+        // Strip previous backups from payload to avoid recursion / unbounded growth (Requirement 12)
+        const cleanState: FmmState = {
+          ...prev,
+          backups: [],
+        };
+
+        const payloadObj = {
+          format: "fmmbackup",
+          version: FMM_BACKUP_VERSION,
+          backup_version: FMM_BACKUP_VERSION,
+          backupVersion: FMM_BACKUP_VERSION,
+          app_version: FMM_APP_VERSION,
+          appVersion: FMM_APP_VERSION,
+          created_at: now.toISOString(),
+          createdAt: now.toISOString(),
+          data: cleanState,
+        };
+
+        const payload = JSON.stringify(payloadObj);
+
+        // Verification check (Requirement 3)
+        const verification = verifyBackupPayloadString(payload);
+        const isVerified = verification.valid;
+
+        if (!isVerified) {
+          verifyErr = verification.error || "Corrupted or invalid payload structure.";
+          created = {
+            id: uid("bk"),
+            timestamp: now.toISOString(),
+            filename,
+            size: payload.length,
+            status: "Failed",
+            app_version: FMM_APP_VERSION,
+            backup_version: FMM_BACKUP_VERSION,
+          };
+          const backups = [created, ...prev.backups].slice(0, Math.max(1, prev.settings.keep_copies));
+          return {
+            ...prev,
+            backups,
+            audit_log: [
+              log("Backup", "backup", created.id, `${auto ? "Automatic" : "Manual"} backup failed verification — ${verifyErr}`, null),
+              ...prev.audit_log,
+            ],
+          };
+        }
+
+        created = {
+          id: uid("bk"),
+          timestamp: now.toISOString(),
+          filename,
+          size: payload.length,
+          status: "Verified",
+          app_version: FMM_APP_VERSION,
+          backup_version: FMM_BACKUP_VERSION,
+        };
+
         if (!auto && typeof window !== "undefined") {
           const url = URL.createObjectURL(new Blob([payload], { type: "application/json" }));
           const a = document.createElement("a");
@@ -1124,16 +1525,22 @@ export function FmmProvider({ children }: { children: ReactNode }) {
           a.click();
           URL.revokeObjectURL(url);
         }
+
         const backups = [created, ...prev.backups].slice(0, Math.max(1, prev.settings.keep_copies));
         return {
           ...prev,
           backups,
           audit_log: [
-            log("Backup", "backup", created.id, `${auto ? "Automatic" : "Manual"} backup — ${filename}`, null),
+            log("Backup", "backup", created.id, `${auto ? "Automatic" : "Manual"} backup verified — ${filename}`, null),
             ...prev.audit_log,
           ],
         };
       });
+
+      if (verifyErr) {
+        throw new Error(`Backup verification failed: ${verifyErr}`);
+      }
+
       return created;
     },
     [],
@@ -1141,11 +1548,11 @@ export function FmmProvider({ children }: { children: ReactNode }) {
 
   const restoreBackup = useCallback<FmmContextValue["restoreBackup"]>(async (file) => {
     const text = await file.text();
-    const parsed = JSON.parse(text) as { format?: string; data?: FmmState };
-    if (parsed.format !== "fmmbackup" || !parsed.data?.phones) {
-      throw new Error("This file is not a valid .fmmbackup package.");
+    const verification = verifyBackupPayloadString(text);
+    if (!verification.valid || !verification.payload?.data) {
+      throw new Error(verification.error || "This file is not a valid or compatible .fmm backup.");
     }
-    const d = parsed.data;
+    const d = verification.payload.data;
     setState((prev) => ({
       ...d,
       accessories: d.accessories ?? [],
@@ -1157,8 +1564,12 @@ export function FmmProvider({ children }: { children: ReactNode }) {
       warranty_claims: d.warranty_claims ?? [],
       returns: d.returns ?? [],
       exchanges: d.exchanges ?? [],
+      supplier_payments: d.supplier_payments ?? [],
+      customer_purchases: d.customer_purchases ?? [],
+      backups: prev.backups?.length ? prev.backups : (d.backups ?? []),
+      settings: { ...prev.settings, ...(d.settings ?? {}) },
       audit_log: [
-        log("Restore", "backup", "restore", `Restored backup from ${file.name}`, null),
+        log("Restore", "backup", "restore", `Restored backup from ${file.name} (${verification.isLegacy ? "Legacy format" : `v${verification.backupVersion || 2}`})`, null),
         ...(d.audit_log ?? prev.audit_log),
       ],
     }));
@@ -1205,7 +1616,10 @@ export function FmmProvider({ children }: { children: ReactNode }) {
       recordWarrantyClaim,
       updateWarrantyClaim,
       recordReturn,
+      processCustomerReturn,
       recordExchange,
+      inspectTradeInDevice,
+      updateTransaction,
       updateSettings,
       runBackup,
       restoreBackup,
@@ -1238,7 +1652,10 @@ export function FmmProvider({ children }: { children: ReactNode }) {
       recordWarrantyClaim,
       updateWarrantyClaim,
       recordReturn,
+      processCustomerReturn,
       recordExchange,
+      inspectTradeInDevice,
+      updateTransaction,
       updateSettings,
       runBackup,
       restoreBackup,
@@ -1382,27 +1799,45 @@ export function phoneBusinessMetrics(state: FmmState) {
   const soldPhones = (state.phones ?? []).filter((p) => p.status === "Sold");
   const todayStr = new Date().toDateString();
 
-  const todayTxs = (state.transactions ?? []).filter(
-    (t) => new Date(t.date).toDateString() === todayStr && (!t.items || t.items.some((it) => it.type === "phone")),
+  const phoneTxs = (state.transactions ?? []).filter(
+    (t) => !t.items || t.items.some((it) => it.type === "phone"),
   );
+  const todayTxs = phoneTxs.filter((t) => new Date(t.date).toDateString() === todayStr);
 
-  const phoneRevenue = (state.transactions ?? [])
-    .filter((t) => t.payment_status === "Paid" && (!t.items || t.items.some((it) => it.type === "phone")))
-    .reduce((s, t) => s + t.amount, 0);
+  let phoneRevenue = 0;
+  let phoneCashInflow = 0;
+  let phoneOutstanding = 0;
+
+  phoneTxs.forEach((t) => {
+    const pay = getTransactionPayment(t);
+    // Derive the phone portion of the transaction
+    if (t.items && t.items.length > 0) {
+      const phonePortion = t.items
+        .filter((it) => it.type === "phone")
+        .reduce((sum, it) => sum + (it.subtotal ?? (it.unit_price * (it.quantity || 1))), 0);
+      phoneRevenue += phonePortion;
+      const ratio = pay.total > 0 ? Math.min(1, phonePortion / pay.total) : 1;
+      phoneCashInflow += Math.round(pay.paid * ratio);
+      phoneOutstanding += Math.round(pay.due * ratio);
+    } else {
+      phoneRevenue += pay.total;
+      phoneCashInflow += pay.paid;
+      phoneOutstanding += pay.due;
+    }
+  });
 
   const phoneCOGS = soldPhones.reduce((s, p) => s + p.purchase_price, 0);
   const phoneGrossProfit = phoneRevenue - phoneCOGS;
 
-  const phoneOutstanding = (state.transactions ?? [])
-    .filter((t) => t.payment_status === "Pending" && (!t.items || t.items.some((it) => it.type === "phone")))
-    .reduce((s, t) => s + t.amount, 0);
+  const soldTodayRevenue = todayTxs.reduce((s, t) => s + getTransactionPayment(t).total, 0);
 
   return {
     totalStock: availablePhones.length,
     stockValue: availablePhones.reduce((s, p) => s + p.purchase_price, 0),
     soldTodayCount: todayTxs.length,
-    soldTodayRevenue: todayTxs.filter((t) => t.payment_status === "Paid").reduce((s, t) => s + t.amount, 0),
+    soldTodayRevenue,
     totalRevenue: phoneRevenue,
+    cashInflow: phoneCashInflow,
     totalCOGS: phoneCOGS,
     totalGrossProfit: phoneGrossProfit,
     totalOutstanding: phoneOutstanding,
@@ -1422,19 +1857,37 @@ export function accessoryBusinessMetrics(state: FmmState) {
   let accRevenue = 0;
   let accCOGS = 0;
   let accOutstanding = 0;
+  let accCashInflow = 0;
 
   accTxs.forEach((t) => {
+    const pay = getTransactionPayment(t);
+    let txAccPortion = 0;
     t.items?.forEach((it) => {
       if (it.type === "accessory") {
-        if (t.payment_status === "Paid") {
-          accRevenue += it.subtotal;
-          accCOGS += it.quantity * it.cost_price;
+        if (it.is_gift) {
+          // Free gifts have 0 revenue, but full acquisition COGS
+          accCOGS += (it.cost_price || 0) * (it.quantity || 1);
         } else {
-          accOutstanding += it.subtotal;
+          const sub = it.subtotal ?? (it.unit_price * (it.quantity || 1));
+          txAccPortion += sub;
+          accRevenue += sub;
+          accCOGS += (it.cost_price || 0) * (it.quantity || 1);
         }
       }
     });
+
+    if (pay.total > 0 && txAccPortion > 0) {
+      const ratio = Math.min(1, txAccPortion / pay.total);
+      accCashInflow += Math.round(pay.paid * ratio);
+      accOutstanding += Math.round(pay.due * ratio);
+    }
   });
+
+  const soldTodayRevenue = todayAccTxs.reduce((s, t) => {
+    const accSub = t.items?.filter((it) => it.type === "accessory" && !it.is_gift)
+      .reduce((sum, it) => sum + (it.subtotal ?? (it.unit_price * (it.quantity || 1))), 0) ?? 0;
+    return s + accSub;
+  }, 0);
 
   return {
     totalQuantity,
@@ -1442,8 +1895,9 @@ export function accessoryBusinessMetrics(state: FmmState) {
     lowStockCount: lowStock.length,
     lowStockItems: lowStock,
     soldTodayCount: todayAccTxs.length,
-    soldTodayRevenue: todayAccTxs.filter((t) => t.payment_status === "Paid").reduce((s, t) => s + t.amount, 0),
+    soldTodayRevenue,
     totalRevenue: accRevenue,
+    cashInflow: accCashInflow,
     totalCOGS: accCOGS,
     totalGrossProfit: accRevenue - accCOGS,
     totalOutstanding: accOutstanding,
@@ -1454,16 +1908,23 @@ export function overallBusinessMetrics(state: FmmState) {
   const phone = phoneBusinessMetrics(state);
   const acc = accessoryBusinessMetrics(state);
 
-  const totalRevenue = phone.totalRevenue + acc.totalRevenue;
+  const allTxs = state.transactions ?? [];
+  let totalRevenue = 0;
+  let cashInflow = 0;
+  let totalOutstanding = 0;
+
+  for (const t of allTxs) {
+    const pay = getTransactionPayment(t);
+    totalRevenue += pay.total;
+    cashInflow += pay.paid;
+    totalOutstanding += pay.due;
+  }
+
   const totalCOGS = phone.totalCOGS + acc.totalCOGS;
   const grossProfit = totalRevenue - totalCOGS;
 
   const operatingExpenses = (state.expenses ?? []).reduce((s, e) => s + e.amount, 0);
   const netProfit = grossProfit - operatingExpenses;
-  const totalOutstanding = phone.totalOutstanding + acc.totalOutstanding;
-
-  // Cash Inflow: All customer payments received
-  const cashInflow = (state.transactions ?? []).filter((t) => t.payment_status === "Paid").reduce((s, t) => s + t.amount, 0);
 
   // Cash Outflow: Supplier payments + customer purchases + expenses
   const cashOutflow =
@@ -1546,10 +2007,8 @@ export function campaignBusinessMetrics(state: FmmState, campaignId: string) {
   let accessoriesSold = 0;
 
   linkedTransactions.forEach((t) => {
-    const isPaid = t.payment_status === "Paid";
-    if (isPaid) {
-      totalSalesRevenue += t.amount;
-    }
+    const pay = getTransactionPayment(t);
+    totalSalesRevenue += pay.total;
 
     if (t.items && t.items.length > 0) {
       t.items.forEach((it) => {
@@ -1563,16 +2022,12 @@ export function campaignBusinessMetrics(state: FmmState, campaignId: string) {
             soldPrice: it.unit_price,
             costPrice: it.cost_price,
           });
-          if (isPaid) {
-            totalProductCOGS += it.cost_price || 0;
-          }
+          totalProductCOGS += it.cost_price || 0;
         } else if (it.type === "accessory") {
           if (it.is_gift) {
             const giftTotal = it.quantity * (it.cost_price || 0);
             freeGiftCost += giftTotal;
-            if (isPaid) {
-              totalProductCOGS += giftTotal;
-            }
+            totalProductCOGS += giftTotal;
             freeGiftsList.push({
               id: it.id,
               name: it.name,
@@ -1592,9 +2047,7 @@ export function campaignBusinessMetrics(state: FmmState, campaignId: string) {
               subtotal: it.subtotal,
               sale: t,
             });
-            if (isPaid) {
-              totalProductCOGS += it.quantity * (it.cost_price || 0);
-            }
+            totalProductCOGS += it.quantity * (it.cost_price || 0);
           }
         }
       });
@@ -1610,9 +2063,7 @@ export function campaignBusinessMetrics(state: FmmState, campaignId: string) {
           soldPrice: t.amount,
           costPrice: ph.purchase_price,
         });
-        if (isPaid) {
-          totalProductCOGS += ph.purchase_price || 0;
-        }
+        totalProductCOGS += ph.purchase_price || 0;
       }
     }
   });
@@ -1676,4 +2127,67 @@ export function stockAgingSummary(phones: Phone[]) {
   });
 
   return buckets;
+}
+
+export interface TransactionPaymentDetails {
+  total: number;
+  paid: number;
+  due: number;
+  hasDue: boolean;
+  status: PaymentStatus;
+  isPaidInFull: boolean;
+}
+
+export function getTransactionPayment(tx: {
+  amount: number;
+  paid_amount?: number | null | undefined;
+  due_amount?: number | null | undefined;
+  payment_status: PaymentStatus;
+  items?: SaleItem[] | undefined;
+}): TransactionPaymentDetails {
+  const itemsTotal = (tx.items && tx.items.length > 0)
+    ? tx.items.reduce((s, it) => s + (it.is_gift ? 0 : (it.subtotal ?? it.unit_price * (it.quantity || 1))), 0)
+    : 0;
+
+  const total = Math.max(tx.amount || 0, itemsTotal);
+
+  let paid = tx.paid_amount;
+  let due = tx.due_amount;
+
+  if (tx.payment_status === "Paid") {
+    due = 0;
+    paid = total;
+  } else {
+    if (paid === undefined || paid === null) {
+      if (due !== undefined && due !== null) {
+        paid = Math.max(0, total - due);
+      } else {
+        paid = 0;
+      }
+    }
+    if (due === undefined || due === null) {
+      due = Math.max(0, total - paid);
+    }
+  }
+
+  // Derive status strictly as Single Source of Truth
+  let derivedStatus: PaymentStatus = tx.payment_status;
+  if (due <= 0 || paid >= total) {
+    derivedStatus = "Paid";
+    due = 0;
+    paid = total;
+  } else if (paid > 0) {
+    derivedStatus = "Partial";
+  } else {
+    derivedStatus = "Pending";
+  }
+
+  return {
+    total,
+    paid,
+    due,
+    hasDue: due > 0,
+    status: derivedStatus,
+    isPaidInFull: due === 0,
+  };
 }

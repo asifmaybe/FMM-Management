@@ -1,15 +1,19 @@
 import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
+  ArrowLeftRight,
   Calendar,
   Layers,
   Megaphone,
   Package,
   Receipt,
   Search,
+  ShieldCheck,
+  ShoppingCart,
   Smartphone,
   Truck,
   Users,
+  Wallet,
 } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -80,7 +84,54 @@ export function GlobalSearchDialog({
         t.id.toLowerCase().includes(q),
     );
 
-    return { phones, accessories, customers, suppliers, campaigns, transactions };
+    const purchases = (state.purchases ?? []).filter((p) => {
+      const sup = state.suppliers?.find((s) => s.id === p.supplier_id);
+      return (
+        p.id.toLowerCase().includes(q) ||
+        (p.notes && p.notes.toLowerCase().includes(q)) ||
+        (sup && sup.name.toLowerCase().includes(q))
+      );
+    });
+
+    const expenses = (state.expenses ?? []).filter(
+      (e) =>
+        e.description.toLowerCase().includes(q) ||
+        e.category.toLowerCase().includes(q) ||
+        (e.payment_method && e.payment_method.toLowerCase().includes(q)),
+    );
+
+    const warrantyClaims = (state.warranty_claims ?? []).filter(
+      (w) =>
+        w.customer_name.toLowerCase().includes(q) ||
+        w.customer_phone.toLowerCase().includes(q) ||
+        w.issue_description.toLowerCase().includes(q) ||
+        (w.notes && w.notes.toLowerCase().includes(q)),
+    );
+
+    const exchanges = (state.exchanges ?? []).filter((exc) => {
+      const inPh = state.phones?.find((p) => p.id === exc.incoming_phone_id);
+      const outPh = state.phones?.find((p) => p.id === exc.outgoing_phone_id);
+      return (
+        exc.customer_name.toLowerCase().includes(q) ||
+        exc.customer_phone.toLowerCase().includes(q) ||
+        (exc.notes && exc.notes.toLowerCase().includes(q)) ||
+        (inPh && `${inPh.brand} ${inPh.model} ${inPh.imei}`.toLowerCase().includes(q)) ||
+        (outPh && `${outPh.brand} ${outPh.model} ${outPh.imei}`.toLowerCase().includes(q))
+      );
+    });
+
+    return {
+      phones,
+      accessories,
+      customers,
+      suppliers,
+      campaigns,
+      transactions,
+      purchases,
+      expenses,
+      warrantyClaims,
+      exchanges,
+    };
   }, [q, state]);
 
   const totalResults = results
@@ -89,7 +140,11 @@ export function GlobalSearchDialog({
       results.customers.length +
       results.suppliers.length +
       results.campaigns.length +
-      results.transactions.length
+      results.transactions.length +
+      results.purchases.length +
+      results.expenses.length +
+      results.warrantyClaims.length +
+      results.exchanges.length
     : 0;
 
   const handleSelect = (to: string) => {
@@ -274,10 +329,132 @@ export function GlobalSearchDialog({
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="font-semibold text-xs"><Taka value={t.amount} /></span>
-                          <StatusBadge status={t.payment_status === "Pending" ? "Payment Pending" : "Paid"} />
+                          <StatusBadge status={t.payment_status} />
                         </div>
                       </button>
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Purchases */}
+              {results!.purchases.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <ShoppingCart className="size-3.5" /> Purchases & Procurement ({results!.purchases.length})
+                  </h4>
+                  <div className="space-y-1">
+                    {results!.purchases.slice(0, 5).map((p) => {
+                      const sup = state.suppliers?.find((s) => s.id === p.supplier_id);
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => handleSelect(p.supplier_id ? `/purchases?supplier=${p.supplier_id}` : "/purchases")}
+                          className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-secondary text-left transition-colors text-sm"
+                        >
+                          <div>
+                            <span className="font-medium">{sup?.name || "Supplier"}</span>
+                            <span className="ml-2 text-xs text-muted-foreground font-mono">{p.id}</span>
+                            {p.notes && <span className="ml-2 text-xs text-muted-foreground truncate">· {p.notes}</span>}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-xs"><Taka value={p.total_amount} /></span>
+                            <StatusBadge status={p.payment_status} />
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Expenses */}
+              {results!.expenses.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Wallet className="size-3.5" /> Expenses ({results!.expenses.length})
+                  </h4>
+                  <div className="space-y-1">
+                    {results!.expenses.slice(0, 5).map((e) => (
+                      <button
+                        key={e.id}
+                        type="button"
+                        onClick={() => handleSelect("/expenses")}
+                        className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-secondary text-left transition-colors text-sm"
+                      >
+                        <div>
+                          <span className="font-medium">{e.description}</span>
+                          <span className="ml-2 text-xs text-muted-foreground">({e.category})</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-xs text-destructive"><Taka value={e.amount} /></span>
+                          <span className="text-xs text-muted-foreground">{new Date(e.date).toLocaleDateString()}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Warranty Claims */}
+              {results!.warrantyClaims.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <ShieldCheck className="size-3.5" /> Warranty Claims ({results!.warrantyClaims.length})
+                  </h4>
+                  <div className="space-y-1">
+                    {results!.warrantyClaims.slice(0, 5).map((w) => (
+                      <button
+                        key={w.id}
+                        type="button"
+                        onClick={() => handleSelect("/sales")}
+                        className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-secondary text-left transition-colors text-sm"
+                      >
+                        <div>
+                          <span className="font-medium">{w.customer_name}</span>
+                          <span className="ml-2 text-xs text-muted-foreground truncate">{w.issue_description}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <StatusBadge status={w.status} />
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Exchanges */}
+              {results!.exchanges.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <ArrowLeftRight className="size-3.5" /> Exchanges & Trade-ins ({results!.exchanges.length})
+                  </h4>
+                  <div className="space-y-1">
+                    {results!.exchanges.slice(0, 5).map((exc) => {
+                      const inPh = state.phones?.find((p) => p.id === exc.incoming_phone_id);
+                      return (
+                        <button
+                          key={exc.id}
+                          type="button"
+                          onClick={() => handleSelect("/sales")}
+                          className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-secondary text-left transition-colors text-sm"
+                        >
+                          <div>
+                            <span className="font-medium">{exc.customer_name}</span>
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              Trade-in: {inPh ? `${inPh.brand} ${inPh.model}` : "Exchange device"}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {exc.incoming_valuation ? (
+                              <span className="text-xs font-medium"><Taka value={exc.incoming_valuation} /></span>
+                            ) : null}
+                            <StatusBadge status={exc.inspection_status || "Pending Inspection"} />
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}

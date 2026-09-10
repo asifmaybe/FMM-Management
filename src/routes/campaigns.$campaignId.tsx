@@ -28,6 +28,7 @@ import { toast } from "sonner";
 import { AppShell, PageHeader } from "@/components/fmm/AppShell";
 import { AddCampaignDialog } from "@/components/fmm/AddCampaignDialog";
 import { AddExpenseDialog } from "@/components/fmm/AddExpenseDialog";
+import { SaleDetailDialog } from "@/components/fmm/SaleDetailDialog";
 import { StatusBadge } from "@/components/fmm/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -35,6 +36,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { campaignBusinessMetrics, useFmm } from "@/lib/fmm-store";
 import { Taka } from "@/components/fmm/Taka";
+import type { Transaction } from "@/lib/fmm-types";
 
 export const Route = createFileRoute("/campaigns/$campaignId")({
   head: () => ({
@@ -57,6 +59,7 @@ function CampaignDetailPage() {
   const [linkExpenseOpen, setLinkExpenseOpen] = useState(false);
   const [selectedExpenseToLink, setSelectedExpenseToLink] = useState("");
   const [tab, setTab] = useState("overview");
+  const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
 
   const campaign = state.campaigns?.find((c) => c.id === campaignId);
   const metrics = useMemo(() => {
@@ -333,11 +336,15 @@ function CampaignDetailPage() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {metrics.linkedTransactions.map((t) => (
-                    <tr key={t.id} className="hover:bg-secondary/20 transition-colors">
+                    <tr
+                      key={t.id}
+                      onClick={() => setSelectedTx(t)}
+                      className="hover:bg-secondary/20 transition-colors cursor-pointer group"
+                    >
                       <td className="px-5 py-4 whitespace-nowrap text-muted-foreground">
                         {new Date(t.date).toLocaleDateString()}
                       </td>
-                      <td className="px-5 py-4 font-semibold">
+                      <td className="px-5 py-4 font-semibold group-hover:text-primary transition-colors">
                         {t.customer_name}
                         {t.customer_phone ? <p className="font-mono text-xs font-normal text-muted-foreground">{t.customer_phone}</p> : null}
                       </td>
@@ -360,16 +367,27 @@ function CampaignDetailPage() {
                         )}
                       </td>
                       <td className="px-5 py-4">
-                        <StatusBadge status={t.payment_status === "Pending" ? "Payment Pending" : "Paid"} />
+                        <StatusBadge status={t.payment_status} />
                       </td>
                       <td className="px-5 py-4 text-right font-bold"><Taka value={t.amount} /></td>
-                      <td className="px-5 py-4 text-right">
-                        <Link
-                          to="/sales"
-                          className="inline-flex items-center gap-1 text-xs text-primary hover:underline font-medium"
-                        >
-                          Sales Ledger <ExternalLink className="size-3" />
-                        </Link>
+                      <td className="px-5 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTx(t)}
+                            className="text-xs text-primary hover:underline font-medium"
+                          >
+                            View Details
+                          </button>
+                          <span className="text-muted-foreground">·</span>
+                          <Link
+                            to="/sales"
+                            search={{ customer: t.customer_name }}
+                            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground font-medium"
+                          >
+                            In Sales <ExternalLink className="size-3" />
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -773,6 +791,8 @@ function CampaignDetailPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <SaleDetailDialog transaction={selectedTx} onClose={() => setSelectedTx(null)} />
     </AppShell>
   );
 }

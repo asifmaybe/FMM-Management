@@ -22,6 +22,7 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("Paid");
+  const [paidAmountInput, setPaidAmountInput] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("Cash");
   const [campaignId, setCampaignId] = useState("");
   const [notes, setNotes] = useState("");
@@ -40,6 +41,7 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
       setCustomerName("");
       setCustomerPhone("");
       setPaymentStatus("Paid");
+      setPaidAmountInput("");
       setPaymentMethod("Cash");
       setCampaignId("");
       setNotes("");
@@ -99,15 +101,20 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
 
   const phonePrice = Number(phoneSoldPrice) || 0;
   const grandTotal = (saleType === "accessory" ? 0 : phonePrice) + (saleType === "phone" ? 0 : accTotal);
+  const livePaid = paymentStatus === "Paid" ? grandTotal : Number(paidAmountInput) || 0;
+  const liveDue = Math.max(0, grandTotal - livePaid);
+  const computedPaymentStatus: PaymentStatus = liveDue === 0 ? "Paid" : livePaid > 0 ? "Partial" : "Pending";
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customerName.trim()) {
+
+    // Customer name is required for phone/combo sales but optional for accessory-only
+    if (saleType !== "accessory" && !customerName.trim()) {
       toast.error("Customer name is required.");
       return;
     }
 
-    // Auto-register customer if new
+    // Auto-register customer only if a name was actually provided
     let finalCusId = customerId;
     if (!finalCusId && customerName.trim()) {
       const existing = state.customers?.find(
@@ -142,7 +149,9 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         customer_phone: customerPhone.trim(),
         customer_id: finalCusId,
         amount: phonePrice,
-        payment_status: paymentStatus,
+        payment_status: computedPaymentStatus,
+        paid_amount: livePaid,
+        due_amount: liveDue,
         payment_method: paymentMethod,
         campaign_id: campaignId || null,
         notes: notes.trim(),
@@ -163,7 +172,7 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         customer_name: customerName.trim(),
         customer_phone: customerPhone.trim(),
         customer_id: finalCusId,
-        payment_status: paymentStatus,
+        payment_status: computedPaymentStatus,
         payment_method: paymentMethod,
         campaign_id: campaignId || null,
         notes: notes.trim(),
@@ -182,7 +191,9 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         customer_phone: customerPhone.trim(),
         customer_id: finalCusId,
         amount: phonePrice,
-        payment_status: paymentStatus,
+        payment_status: computedPaymentStatus,
+        paid_amount: livePaid,
+        due_amount: liveDue,
         payment_method: paymentMethod,
         campaign_id: campaignId || null,
         notes: notes.trim(),
@@ -364,7 +375,14 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
             {/* Customer Details */}
             <div className="border rounded-xl p-3.5 bg-card space-y-3">
               <div className="flex items-center justify-between">
-                <Label className="text-xs font-semibold">Customer Information</Label>
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs font-semibold">Customer Information</Label>
+                  {saleType === "accessory" && (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
+                      Optional
+                    </span>
+                  )}
+                </div>
                 <select
                   value={customerId}
                   onChange={(e) => handleCustomerSelect(e.target.value)}
@@ -379,18 +397,26 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                 </select>
               </div>
 
+              {saleType === "accessory" && (
+                <p className="text-[11px] text-muted-foreground -mt-1">
+                  Leave blank to record as a walk-in sale. If filled, the customer will be saved to the directory.
+                </p>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <Label htmlFor="cus_n" className="text-xs text-muted-foreground">Name *</Label>
+                  <Label htmlFor="cus_n" className="text-xs text-muted-foreground">
+                    Name {saleType !== "accessory" ? "*" : ""}
+                  </Label>
                   <Input
                     id="cus_n"
-                    required
+                    required={saleType !== "accessory"}
                     value={customerName}
                     onChange={(e) => {
                       setCustomerId("");
                       setCustomerName(e.target.value);
                     }}
-                    placeholder="Rahim Ali"
+                    placeholder={saleType === "accessory" ? "Optional — e.g. Rahim Ali" : "Rahim Ali"}
                     className="mt-1"
                   />
                 </div>
@@ -413,11 +439,20 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                 <Label className="text-xs font-semibold">Payment Status</Label>
                 <select
                   value={paymentStatus}
-                  onChange={(e) => setPaymentStatus(e.target.value as PaymentStatus)}
+                  onChange={(e) => {
+                    const val = e.target.value as PaymentStatus;
+                    setPaymentStatus(val);
+                    if (val === "Paid") {
+                      setPaidAmountInput(String(grandTotal));
+                    } else if (!paidAmountInput || paidAmountInput === String(grandTotal)) {
+                      setPaidAmountInput("");
+                    }
+                  }}
                   className="mt-1 h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                 >
                   <option value="Paid">Paid in Full</option>
-                  <option value="Pending">Payment Pending / Due</option>
+                  <option value="Partial">Partial Payment</option>
+                  <option value="Pending">Payment Pending / Full Due</option>
                 </select>
               </div>
 
@@ -465,6 +500,31 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                 </select>
               </div>
             </div>
+
+            {paymentStatus !== "Paid" && (
+              <div className="grid grid-cols-2 gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-3">
+                <div>
+                  <Label className="text-xs font-medium text-foreground">
+                    Amount Paid Now (<TakaSign />)
+                  </Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max={grandTotal}
+                    value={paidAmountInput}
+                    onChange={(e) => setPaidAmountInput(e.target.value)}
+                    placeholder="e.g. 45000"
+                    className="mt-1 rounded-xl bg-card font-medium"
+                  />
+                </div>
+                <div className="flex flex-col justify-center">
+                  <span className="text-xs text-muted-foreground">Remaining Due:</span>
+                  <p className="text-lg font-bold text-destructive">
+                    <Taka value={liveDue} />
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div>
               <Label htmlFor="sale_notes" className="text-xs font-semibold">Notes</Label>

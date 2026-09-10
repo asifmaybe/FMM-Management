@@ -107,7 +107,7 @@ export function seedState(): FmmState {
 
   const phones = [
     mk("359012345678901", "Samsung", "Galaxy S23", "8GB / 256GB", "New", s1, 75000, 82000, "Available", 12, null, cmp1),
-    mk("358192837465012", "Apple", "iPhone 14 Pro", "6GB / 128GB", "Used - A", s2, 90000, 98000, "Payment Pending", 3, null, cmp1),
+    mk("358192837465012", "Apple", "iPhone 14 Pro", "6GB / 128GB", "Used - A", s2, 90000, 98000, "Sold", 3, 98000, cmp1),
     mk("352345678901234", "Xiaomi", "Redmi Note 12", "4GB / 128GB", "New", s1, 16500, 18500, "Sold", 0, 18500, cmp1),
     mk("356789012345678", "Google", "Pixel 7", "8GB / 128GB", "Used - B", null, 45000, 52000, "Exchange", 5, null),
     mk("351122334455667", "Apple", "iPhone 13 Pro", "6GB / 256GB", "Used - A", s1, 78000, 85000, "Available", 9, null, cmp1),
@@ -357,8 +357,8 @@ export function seedState(): FmmState {
       type: "Sale",
       customer_name: "Sabbir Rahman",
       customer_phone: "01711-223344",
-      amount: 33500,
-      payment_status: "Pending",
+      amount: 98000,
+      payment_status: "Partial",
       payment_method: "bKash",
       paid_amount: 64500,
       due_amount: 33500,

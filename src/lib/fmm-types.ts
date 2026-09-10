@@ -10,7 +10,15 @@ export interface Supplier {
 }
 
 export type PhoneCondition = "New" | "Used - A" | "Used - B" | "Used - Good" | "Refurbished";
-export type PhoneStatus = "Available" | "Sold" | "Exchange" | "Payment Pending";
+export type PhoneStatus =
+  | "Available"
+  | "Sold"
+  | "Exchange"
+  | "Payment Pending"
+  | "In Inspection"
+  | "Returned"
+  | "Returned to Supplier"
+  | "Rejected / Do Not Stock";
 export type SourceType = "Supplier Purchase" | "Buy from Customer" | "Own Stock";
 
 export interface DamageChecklist {
@@ -119,8 +127,8 @@ export interface Customer {
 // -------------------------------------------------------------
 // Transactions & Sales Domain
 // -------------------------------------------------------------
-export type TransactionType = "Sale" | "Exchange";
-export type PaymentStatus = "Paid" | "Pending";
+export type TransactionType = "Sale" | "Exchange" | "Return";
+export type PaymentStatus = "Paid" | "Pending" | "Partial";
 
 export interface SaleItem {
   type: "phone" | "accessory";
@@ -131,6 +139,32 @@ export interface SaleItem {
   cost_price: number;
   subtotal: number;
   is_gift?: boolean | undefined;
+}
+
+export interface TransactionTradeIn {
+  incoming_phone_id: string;
+  incoming_brand: string;
+  incoming_model: string;
+  incoming_imei: string;
+  incoming_valuation: number;
+  difference_direction: "customer_pays_shop" | "shop_pays_customer";
+  settlement_amount: number;
+  inspection_status: "Pending Inspection" | "Approved & Restocked" | "Rejected";
+}
+
+export type ReturnDisposition = "Restocked" | "Refund Only" | "Returned to Supplier";
+
+export interface TransactionReturnInfo {
+  return_id: string;
+  return_date: string;
+  original_sold_price: number;
+  deduction_percentage: number;
+  deduction_amount: number;
+  refund_amount: number;
+  reason: string;
+  disposition: ReturnDisposition;
+  supplier_id?: string | null;
+  new_resale_price?: number | null;
 }
 
 export interface Transaction {
@@ -146,6 +180,8 @@ export interface Transaction {
   paid_amount?: number;
   due_amount?: number;
   items?: SaleItem[];
+  trade_in?: TransactionTradeIn | undefined;
+  return_info?: TransactionReturnInfo | undefined;
   campaign_id?: string | null;
   date: string;
   notes: string;
@@ -291,7 +327,13 @@ export interface CustomerReturn {
   return_date: string;
   reason: string;
   action: ReturnAction;
+  original_sale_price?: number;
+  deduction_percentage?: number;
+  deduction_amount?: number;
   refund_amount: number;
+  disposition?: ReturnDisposition;
+  supplier_id?: string | null;
+  new_resale_price?: number | null;
   notes: string;
   created_at: string;
 }
@@ -308,7 +350,10 @@ export interface ExchangeRecord {
   customer_id?: string | null;
   outgoing_value: number;
   incoming_valuation: number;
+  difference_direction?: "customer_pays_shop" | "shop_pays_customer";
+  settlement_amount?: number;
   additional_paid: number;
+  inspection_status?: "Pending Inspection" | "Approved & Restocked" | "Rejected";
   date: string;
   notes: string;
   created_at: string;
@@ -341,6 +386,10 @@ export type AuditAction =
   | "Warranty Claim"
   | "Warranty Updated"
   | "Return"
+  | "Transaction Updated"
+  | "Trade-In Inspected"
+  | "Device Restocked"
+  | "Returned to Supplier"
   | "Backup"
   | "Restore";
 
@@ -359,6 +408,9 @@ export interface BackupRecord {
   timestamp: string;
   filename: string;
   size: number;
+  status?: "Verified" | "Failed" | "Unverified";
+  app_version?: string;
+  backup_version?: number;
 }
 
 export interface Settings {

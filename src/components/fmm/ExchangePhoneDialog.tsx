@@ -1,4 +1,4 @@
-import { useState, useEffect, type ChangeEvent } from "react";
+import { useState, useEffect, useRef, type ChangeEvent } from "react";
 import { toast } from "sonner";
 import { ArrowLeftRight, Camera, Check, FileText, Plus, ShieldCheck, Smartphone, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -44,13 +44,28 @@ export function ExchangePhoneDialog({
   // Step 1: Outgoing phone from FMM
   const [outgoingId, setOutgoingId] = useState("");
   const [outgoingPrice, setOutgoingPrice] = useState("");
+  const [phoneSearch, setPhoneSearch] = useState("");
+  const [showPhoneDropdown, setShowPhoneDropdown] = useState(false);
+  const phoneSearchRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (phoneSearchRef.current && !phoneSearchRef.current.contains(e.target as Node)) {
+        setShowPhoneDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Step 2: Incoming trade-in phone from customer
   const [inBrand, setInBrand] = useState("Samsung");
   const [inModel, setInModel] = useState("");
   const [inImei, setInImei] = useState("");
   const [inImeiSecondary, setInImeiSecondary] = useState("");
-  const [inStorage, setInStorage] = useState("");
+  const [inRom, setInRom] = useState("");
+  const [inRam, setInRam] = useState("");
   const [inCondition, setInCondition] = useState<PhoneCondition>("Used - Good");
   const [inBatteryHealth, setInBatteryHealth] = useState("");
   const [inValuation, setInValuation] = useState("");
@@ -75,13 +90,16 @@ export function ExchangePhoneDialog({
 
   const reset = () => {
     setStep(0);
-    setOutgoingId(available[0]?.id || "");
-    setOutgoingPrice(available[0]?.selling_price ? String(available[0].selling_price) : "");
+    setOutgoingId("");
+    setOutgoingPrice("");
+    setPhoneSearch("");
+    setShowPhoneDropdown(false);
     setInBrand("Samsung");
     setInModel("");
     setInImei("");
     setInImeiSecondary("");
-    setInStorage("");
+    setInRom("");
+    setInRam("");
     setInCondition("Used - Good");
     setInBatteryHealth("");
     setInValuation("");
@@ -200,14 +218,14 @@ export function ExchangePhoneDialog({
         battery_health: inBatteryHealth.trim() || null,
         brand: inBrand.trim(),
         model: inModel.trim(),
-        storage_ram: inStorage.trim() || "N/A",
+        storage_ram: [inRom.trim(), inRam.trim()].filter(Boolean).join(" / ") || "N/A",
         condition: inCondition,
         source_type: "Buy from Customer",
         supplier_id: null,
         customer_purchase_id: null,
         purchase_price: inVal,
         selling_price: Math.round(inVal * 1.15),
-        status: "Available",
+        status: "In Inspection",
         condition_notes: conditionNotes.trim() || `Trade-in exchange for ${selectedOutgoing!.brand} ${selectedOutgoing!.model}`,
         damage_checklist: damage,
         warranty_repair_notes: "",
@@ -281,23 +299,80 @@ export function ExchangePhoneDialog({
                 {selectedOutgoing ? <StatusBadge status={selectedOutgoing.status} /> : null}
               </div>
 
-              <div>
-                <Label htmlFor="exc_out_select" className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                  Select Phone from Available Stock *
+              <div ref={phoneSearchRef} className="relative">
+                <Label htmlFor="exc_out_search" className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                  Search Phone from Available Stock *
                 </Label>
-                <select
-                  id="exc_out_select"
-                  value={outgoingId}
-                  onChange={(e) => handleOutgoingChange(e.target.value)}
-                  className="h-10 w-full rounded-xl border border-input bg-transparent px-3 text-sm font-medium"
-                >
-                  <option value="">Choose an available phone from stock…</option>
-                  {available.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.brand} {p.model} ({p.storage_ram}) — IMEI: …{p.imei.slice(-4)} — Sell: {p.selling_price ? `${p.selling_price.toLocaleString()} ৳` : "N/A"}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+                  <input
+                    id="exc_out_search"
+                    type="text"
+                    autoComplete="off"
+                    value={phoneSearch}
+                    onChange={(e) => {
+                      setPhoneSearch(e.target.value);
+                      setShowPhoneDropdown(true);
+                      // Clear selection if user edits search
+                      if (outgoingId) {
+                        setOutgoingId("");
+                        setOutgoingPrice("");
+                      }
+                    }}
+                    onFocus={() => setShowPhoneDropdown(true)}
+                    placeholder="Search by IMEI, brand or model…"
+                    className="h-10 w-full rounded-xl border border-input bg-transparent pl-9 pr-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  {phoneSearch && (
+                    <button
+                      type="button"
+                      onClick={() => { setPhoneSearch(""); setOutgoingId(""); setOutgoingPrice(""); setShowPhoneDropdown(false); }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {showPhoneDropdown && (() => {
+                  const q = phoneSearch.trim().toLowerCase();
+                  const filtered = available.filter((p) =>
+                    !q ||
+                    p.imei.toLowerCase().includes(q) ||
+                    p.brand.toLowerCase().includes(q) ||
+                    p.model.toLowerCase().includes(q)
+                  );
+                  return filtered.length > 0 ? (
+                    <ul className="absolute z-50 mt-1 w-full rounded-xl border border-border bg-popover shadow-xl overflow-hidden max-h-60 overflow-y-auto">
+                      {filtered.map((p) => (
+                        <li
+                          key={p.id}
+                          onClick={() => {
+                            handleOutgoingChange(p.id);
+                            setPhoneSearch(`${p.brand} ${p.model} — IMEI: ${p.imei}`);
+                            setShowPhoneDropdown(false);
+                          }}
+                          className={`flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-secondary transition-colors ${
+                            outgoingId === p.id ? "bg-primary/10 border-l-2 border-primary" : ""
+                          }`}
+                        >
+                          <Smartphone className="size-4 mt-0.5 text-primary shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold truncate">{p.brand} {p.model}</p>
+                            <p className="text-xs text-muted-foreground font-mono">{p.imei}{p.storage_ram ? ` · ${p.storage_ram}` : ""}</p>
+                            <p className="text-xs text-success font-medium mt-0.5">
+                              {p.selling_price ? `${p.selling_price.toLocaleString()} ৳` : "Price N/A"}
+                            </p>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="absolute z-50 mt-1 w-full rounded-xl border border-border bg-popover shadow-xl px-4 py-3 text-sm text-muted-foreground">
+                      No matching phones in stock.
+                    </div>
+                  );
+                })()}
               </div>
 
               {selectedOutgoing ? (
@@ -364,8 +439,11 @@ export function ExchangePhoneDialog({
                 <Field label="Model *">
                   <Input value={inModel} onChange={(e) => setInModel(e.target.value)} placeholder="e.g. Galaxy S23 Ultra, iPhone 14" />
                 </Field>
-                <Field label="Storage / RAM">
-                  <Input value={inStorage} onChange={(e) => setInStorage(e.target.value)} placeholder="e.g. 256GB / 12GB" />
+                <Field label="ROM (Storage)">
+                  <Input value={inRom} onChange={(e) => setInRom(e.target.value)} placeholder="e.g. 128GB, 256GB" />
+                </Field>
+                <Field label="RAM">
+                  <Input value={inRam} onChange={(e) => setInRam(e.target.value)} placeholder="e.g. 6GB, 8GB" />
                 </Field>
                 <Field label="Condition">
                   <select

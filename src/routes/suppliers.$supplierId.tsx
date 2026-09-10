@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowLeft, Check, HandCoins, Layers, Receipt } from "lucide-react";
+import { ArrowLeft, Check, HandCoins, Layers, Receipt, ShoppingCart } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AppShell, PageHeader } from "@/components/fmm/AppShell";
@@ -70,15 +70,23 @@ function SupplierDetailPage() {
           />
           {supplier ? (
             <div className="flex flex-wrap items-center gap-2">
+              <Link
+                to="/purchases"
+                search={{ supplier: supplier.id }}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-secondary/70 hover:bg-secondary px-3.5 py-2 text-xs font-semibold text-foreground transition-colors shadow-2xs"
+              >
+                <ShoppingCart className="size-3.5 text-primary" />
+                View Purchases
+              </Link>
               <Button
                 variant={due > 0 ? "destructive" : "default"}
-                className="rounded-xl gap-1.5"
+                className="rounded-xl gap-1.5 text-xs"
                 onClick={() => setPayOpen(true)}
               >
-                <HandCoins className="size-4" /> Record Payment
+                <HandCoins className="size-3.5" /> Record Payment
               </Button>
-              <Button variant="outline" className="rounded-xl gap-1.5" onClick={() => setBulkOpen(true)}>
-                <Layers className="size-4" /> Bulk Add Phones
+              <Button variant="outline" className="rounded-xl gap-1.5 text-xs" onClick={() => setBulkOpen(true)}>
+                <Layers className="size-3.5" /> Bulk Add Phones
               </Button>
             </div>
           ) : null}
@@ -88,17 +96,17 @@ function SupplierDetailPage() {
         {supplier ? (
           <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className={`rounded-xl border p-4.5 ${due > 0 ? "border-destructive/40 bg-danger-soft/40" : "border-border bg-card"}`}>
-              <p className="text-xs font-semibold tracking-wide text-muted-foreground">DUE TO SUPPLIER</p>
+              <p className="text-xs font-semibold tracking-wide text-muted-foreground">CONSIGNMENT PAYABLE (SOLD STOCK)</p>
               <p className={`mt-2 text-2xl font-bold ${due > 0 ? "text-destructive" : "text-success"}`}>
                 <Taka value={due} />
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {due > 0 ? "Outstanding balance owed" : "All stock cleared"}
+                {due > 0 ? "Owed for sold inventory under consignment terms" : "All sold consignment stock settled"}
               </p>
             </div>
 
             <div className="rounded-xl border border-border bg-card p-4.5">
-              <p className="text-xs font-semibold tracking-wide text-muted-foreground">TOTAL EVER OWED</p>
+              <p className="text-xs font-semibold tracking-wide text-muted-foreground">TOTAL CONSIGNMENT OWED</p>
               <p className="mt-2 text-2xl font-bold text-foreground">
                 <Taka value={totalOwed} />
               </p>
@@ -148,7 +156,7 @@ function SupplierDetailPage() {
         </div>
 
         <div className="mb-4 flex flex-wrap gap-2">
-          {["All", "Available", "Sold", "Exchange", "Payment Pending"].map((s) => (
+          {["All", "Available", "Sold", "Exchange"].map((s) => (
             <button
               key={s}
               onClick={() => setStatus(s)}

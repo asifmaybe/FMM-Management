@@ -37,7 +37,8 @@ export function CustomerIntakeDialog({ open, onOpenChange }: { open: boolean; on
   const [phone, setPhone] = useState({
     brand: "Samsung",
     model: "",
-    storage_ram: "",
+    rom: "",
+    ram: "",
     condition: "Used - Good" as PhoneCondition,
     imei: "",
     bought_price: "",
@@ -55,7 +56,8 @@ export function CustomerIntakeDialog({ open, onOpenChange }: { open: boolean; on
     setPhone({
       brand: "Samsung",
       model: "",
-      storage_ram: "",
+      rom: "",
+      ram: "",
       condition: "Used - Good",
       imei: "",
       bought_price: "",
@@ -96,7 +98,7 @@ export function CustomerIntakeDialog({ open, onOpenChange }: { open: boolean; on
         battery_health: null,
         brand: phone.brand,
         model: phone.model,
-        storage_ram: phone.storage_ram,
+        storage_ram: [phone.rom.trim(), phone.ram.trim()].filter(Boolean).join(" / ") || "N/A",
         condition: phone.condition,
         purchase_price: Number(phone.agreed_price),
         selling_price: null,
@@ -201,8 +203,11 @@ export function CustomerIntakeDialog({ open, onOpenChange }: { open: boolean; on
                 <Field label="Model">
                   <Input value={phone.model} onChange={(e) => setPhone({ ...phone, model: e.target.value })} placeholder="e.g. Galaxy S23 Ultra" />
                 </Field>
-                <Field label="Storage / RAM">
-                  <Input value={phone.storage_ram} onChange={(e) => setPhone({ ...phone, storage_ram: e.target.value })} placeholder="e.g. 256GB / 12GB" />
+                <Field label="ROM (Storage)">
+                  <Input value={phone.rom} onChange={(e) => setPhone({ ...phone, rom: e.target.value })} placeholder="e.g. 128GB, 256GB" />
+                </Field>
+                <Field label="RAM">
+                  <Input value={phone.ram} onChange={(e) => setPhone({ ...phone, ram: e.target.value })} placeholder="e.g. 6GB, 8GB" />
                 </Field>
                 <Field label="Condition">
                   <select

@@ -165,16 +165,110 @@
   aside::-webkit-scrollbar {
     width: 4px;
   }
+
   aside::-webkit-scrollbar-track {
     background: transparent;
   }
+
   aside::-webkit-scrollbar-thumb {
     background: var(--color-border);
     border-radius: 9999px;
   }
+
   aside {
     scrollbar-width: thin;
     scrollbar-color: var(--color-border) transparent;
   }
 }
 
+/* ==========================================================================
+   PRINT MEDIA STYLES (Direct Browser Print Fallback)
+   ========================================================================== */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 12mm 14mm 12mm;
+  }
+
+  /* When the report modal is open, hide the background dashboard app */
+  body:has(#fmm-printable-report) #root {
+    display: none !important;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    overflow: visible !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Reset Radix Dialog fixed positioning and overlay */
+  div[data-radix-portal] {
+    position: static !important;
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  [data-radix-dialog-overlay],
+  .fixed.inset-0.bg-black\/80,
+  button[data-state="open"],
+  .print\:hidden {
+    display: none !important;
+  }
+
+  div[role="dialog"] {
+    position: static !important;
+    top: auto !important;
+    left: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+  }
+
+  #fmm-printable-report {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+  }
+
+  #fmm-printable-report section {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  #fmm-printable-report table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    break-inside: auto !important;
+  }
+
+  #fmm-printable-report thead {
+    display: table-header-group !important;
+  }
+
+  #fmm-printable-report tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  #fmm-printable-report h1,
+  #fmm-printable-report h2,
+  #fmm-printable-report h3 {
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+  }
+}

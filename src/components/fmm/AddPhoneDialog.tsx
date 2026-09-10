@@ -40,7 +40,8 @@ export function AddPhoneDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const [phone, setPhone] = useState({
     brand: "Samsung",
     model: "",
-    storage_ram: "",
+    rom: "",
+    ram: "",
     condition: "Used - Good" as PhoneCondition,
     imei: "",
     imei_secondary: "",
@@ -73,7 +74,8 @@ export function AddPhoneDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     setPhone({
       brand: "Samsung",
       model: "",
-      storage_ram: "",
+      rom: "",
+      ram: "",
       condition: "Used - Good",
       imei: "",
       imei_secondary: "",
@@ -99,6 +101,13 @@ export function AddPhoneDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     if (file) setter(await readFile(file));
   };
 
+  const getFormattedStorageRam = () => {
+    const rom = phone.rom.trim();
+    const ram = phone.ram.trim();
+    if (rom && ram) return `${rom} / ${ram}`;
+    return rom || ram || "N/A";
+  };
+
   const handleOwnStockSubmit = () => {
     if (!phone.imei.trim() || !phone.brand.trim() || !phone.model.trim() || !phone.purchase_price) {
       toast.error("IMEI, brand, model, and purchase cost are required.");
@@ -111,7 +120,7 @@ export function AddPhoneDialog({ open, onOpenChange }: { open: boolean; onOpenCh
       battery_health: phone.battery_health.trim() || null,
       brand: phone.brand.trim(),
       model: phone.model.trim(),
-      storage_ram: phone.storage_ram.trim() || "N/A",
+      storage_ram: getFormattedStorageRam(),
       condition: phone.condition,
       source_type: "Own Stock",
       supplier_id: null,
@@ -157,7 +166,7 @@ export function AddPhoneDialog({ open, onOpenChange }: { open: boolean; onOpenCh
         battery_health: phone.battery_health.trim() || null,
         brand: phone.brand.trim(),
         model: phone.model.trim(),
-        storage_ram: phone.storage_ram.trim() || "N/A",
+        storage_ram: getFormattedStorageRam(),
         condition: phone.condition,
         purchase_price: Number(phone.purchase_price),
         selling_price: phone.selling_price ? Number(phone.selling_price) : null,
@@ -356,11 +365,18 @@ export function AddPhoneDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                         placeholder="e.g. Galaxy S23 Ultra, iPhone 14"
                       />
                     </Field>
-                    <Field label="Storage / RAM">
+                    <Field label="ROM (Storage)">
                       <Input
-                        value={phone.storage_ram}
-                        onChange={(e) => setPhone({ ...phone, storage_ram: e.target.value })}
-                        placeholder="e.g. 256GB / 12GB"
+                        value={phone.rom}
+                        onChange={(e) => setPhone({ ...phone, rom: e.target.value })}
+                        placeholder="e.g. 128GB, 256GB"
+                      />
+                    </Field>
+                    <Field label="RAM">
+                      <Input
+                        value={phone.ram}
+                        onChange={(e) => setPhone({ ...phone, ram: e.target.value })}
+                        placeholder="e.g. 6GB, 8GB, 12GB"
                       />
                     </Field>
                     <Field label="Condition">
@@ -488,11 +504,18 @@ export function AddPhoneDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                     placeholder="e.g. iPhone 15 Pro Max"
                   />
                 </Field>
-                <Field label="Storage / RAM">
+                <Field label="ROM (Storage)">
                   <Input
-                    value={phone.storage_ram}
-                    onChange={(e) => setPhone({ ...phone, storage_ram: e.target.value })}
-                    placeholder="e.g. 256GB / 8GB"
+                    value={phone.rom}
+                    onChange={(e) => setPhone({ ...phone, rom: e.target.value })}
+                    placeholder="e.g. 128GB, 256GB"
+                  />
+                </Field>
+                <Field label="RAM">
+                  <Input
+                    value={phone.ram}
+                    onChange={(e) => setPhone({ ...phone, ram: e.target.value })}
+                    placeholder="e.g. 6GB, 8GB, 12GB"
                   />
                 </Field>
                 <Field label="Condition">

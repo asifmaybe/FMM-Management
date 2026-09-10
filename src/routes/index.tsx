@@ -1,7 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
-  AlertTriangle,
-  Archive,
   ArrowUpRight,
   Calendar,
   CreditCard,
@@ -17,14 +15,16 @@ import {
   TrendingUp,
   Wallet,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { AppShell, PageHeader } from "@/components/fmm/AppShell";
+import { AuditEntityLink } from "@/components/fmm/AuditEntityLink";
+import { SaleDetailDialog } from "@/components/fmm/SaleDetailDialog";
 import { ProfitChart } from "@/components/fmm/ProfitChart";
 import { StatusBadge } from "@/components/fmm/StatusBadge";
 import { buildSeries } from "@/lib/fmm-analytics";
+import type { Transaction } from "@/lib/fmm-types";
 import {
   accessoryBusinessMetrics,
-  daysInStock,
   overallBusinessMetrics,
   phoneBusinessMetrics,
   shopBalance,
@@ -59,6 +59,12 @@ function isSameDay(a: string, b: Date) {
 
 function DashboardPage() {
   const { state } = useFmm();
+  const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+
+  const handleTransactionOpen = (txId: string) => {
+    const tx = state.transactions?.find((t) => t.id === txId);
+    if (tx) setSelectedTx(tx);
+  };
 
   const overall = useMemo(() => overallBusinessMetrics(state), [state]);
   const phone = useMemo(() => phoneBusinessMetrics(state), [state]);
@@ -72,22 +78,19 @@ function DashboardPage() {
 
   const chartData = useMemo(() => buildSeries(state, "daily", 7), [state]);
 
-  // Model counts for low stock phones
-  const modelCounts = new Map<string, { label: string; supplier: string; count: number }>();
-  for (const p of state.phones) {
-    const key = `${p.brand} ${p.model}`;
-    const supplier =
-      p.source_type === "Buy from Customer"
-        ? "Bought from Customer"
-        : (state.suppliers.find((s) => s.id === p.supplier_id)?.name ?? "—");
-    const entry = modelCounts.get(key) ?? { label: key, supplier, count: 0 };
-    if (p.status === "Available") entry.count += 1;
-    modelCounts.set(key, entry);
-  }
-  const lowStockPhones = [...modelCounts.values()]
-    .filter((m) => m.count < state.settings.low_stock_threshold)
-    .sort((a, b) => a.count - b.count)
-    .slice(0, 5);
+  // Today's expense summary
+  const todayExpenses = useMemo(() => {
+    const now = new Date();
+    const list = (state.expenses ?? []).filter((e) => {
+      const d = new Date(e.date);
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+    });
+    const total = list.reduce((s, e) => s + e.amount, 0);
+    const catMap = new Map<string, number>();
+    list.forEach((e) => catMap.set(e.category, (catMap.get(e.category) ?? 0) + e.amount));
+    const breakdown = Array.from(catMap.entries()).sort((a, b) => b[1] - a[1]);
+    return { total, count: list.length, breakdown };
+  }, [state.expenses]);
 
   const businessCards = [
     {
@@ -119,7 +122,7 @@ function DashboardPage() {
     {
       label: "CUSTOMER OUTSTANDING",
       value: <Taka value={overall.totalOutstanding} />,
-      icon: AlertTriangle,
+      icon: TrendingDown,
       hint: "Pending customer collections",
       hintClass: overall.totalOutstanding > 0 ? "text-destructive" : "text-muted-foreground",
       danger: overall.totalOutstanding > 0,
@@ -222,13 +225,20 @@ function DashboardPage() {
                 <p className="font-bold text-base text-foreground mt-1">{acc.totalQuantity} units</p>
                 <p className="text-[10px] text-muted-foreground mt-0.5"><Taka value={acc.totalValue} /></p>
               </div>
-              <div className="bg-secondary/40 p-3 rounded-xl">
-                <span className="text-muted-foreground">Low Stock</span>
+              <Link
+                to="/accessories"
+                search={{ low_stock: "true" }}
+                className="bg-secondary/40 hover:bg-secondary/70 p-3 rounded-xl transition-colors block group cursor-pointer"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground group-hover:text-foreground transition-colors">Low Stock</span>
+                  <ArrowUpRight className="size-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
                 <p className={`font-bold text-base mt-1 ${acc.lowStockCount > 0 ? "text-destructive" : "text-success"}`}>
                   {acc.lowStockCount} items
                 </p>
                 <p className="text-[10px] text-muted-foreground mt-0.5">Need re-order</p>
-              </div>
+              </Link>
               <div className="bg-secondary/40 p-3 rounded-xl">
                 <span className="text-muted-foreground">Acc. Revenue</span>
                 <p className="font-bold text-base text-foreground mt-1"><Taka value={acc.totalRevenue} /></p>
@@ -293,65 +303,60 @@ function DashboardPage() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-border bg-card">
-            <div className="flex items-center gap-2 border-b border-border px-5 py-4">
-              <AlertTriangle className="size-4 text-destructive" />
-              <h3 className="text-sm font-semibold tracking-wide">PHONE LOW STOCK ALERT</h3>
+          {/* Today's Expense Summary */}
+          <Link
+            to="/expenses"
+            search={{ period: "daily" }}
+            className="rounded-xl border border-border bg-card flex flex-col hover:border-primary/40 transition-colors group"
+          >
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <div className="flex items-center gap-2">
+                <TrendingDown className="size-4 text-destructive" />
+                <h3 className="text-sm font-semibold tracking-wide">TODAY'S EXPENSES</h3>
+              </div>
+              <ArrowUpRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
-            <div className="divide-y divide-border">
-              {lowStockPhones.length === 0 ? (
-                <p className="px-5 py-6 text-sm text-muted-foreground">All phone models are above the threshold.</p>
+
+            <div className="px-5 py-5 flex flex-col gap-4 flex-1">
+              {/* Total spend */}
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Total Spent Today</p>
+                <p className="text-3xl font-bold text-destructive"><Taka value={todayExpenses.total} /></p>
+                <p className="text-xs text-muted-foreground mt-1">{todayExpenses.count} expense {todayExpenses.count === 1 ? "record" : "records"}</p>
+              </div>
+
+              {/* Category breakdown */}
+              {todayExpenses.breakdown.length > 0 ? (
+                <div className="space-y-2">
+                  {todayExpenses.breakdown.slice(0, 5).map(([cat, amt]) => {
+                    const pct = todayExpenses.total > 0 ? Math.round((amt / todayExpenses.total) * 100) : 0;
+                    return (
+                      <div key={cat}>
+                        <div className="flex items-center justify-between text-xs mb-1">
+                          <span className="font-medium text-foreground">{cat}</span>
+                          <span className="text-muted-foreground"><Taka value={amt} /></span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-destructive/70 transition-all"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               ) : (
-                lowStockPhones.map((m) => (
-                  <div key={m.label} className="flex items-center justify-between gap-3 px-5 py-3.5">
-                    <div>
-                      <p className="text-sm font-semibold">{m.label}</p>
-                      <p className="text-xs text-muted-foreground">Supplier: {m.supplier}</p>
-                    </div>
-                    <span className="rounded-lg bg-danger-soft px-2.5 py-1 text-xs font-semibold text-destructive">
-                      {m.count} left
-                    </span>
-                  </div>
-                ))
+                <p className="text-sm text-muted-foreground flex-1 flex items-center">
+                  No expenses recorded today.
+                </p>
               )}
             </div>
-          </div>
-        </div>
-
-        {/* 5. Recent Activity from Audit Log */}
-        <div className="rounded-xl border border-border bg-card">
-          <div className="flex items-center justify-between px-5 py-4">
-            <h3 className="text-sm font-semibold tracking-wide">RECENT ACTIVITY</h3>
-            <Link to="/audit" className="text-sm font-medium text-primary hover:underline">
-              View All Log
-            </Link>
-          </div>
-          <table className="w-full text-sm">
-            <thead className="border-y border-border text-left text-muted-foreground">
-              <tr>
-                <th className="px-5 py-3 font-medium">Time</th>
-                <th className="px-5 py-3 font-medium">Action</th>
-                <th className="px-5 py-3 font-medium">Details</th>
-                <th className="px-5 py-3 text-right font-medium">Amount</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {state.audit_log.slice(0, 6).map((a) => (
-                <tr key={a.id}>
-                  <td className="px-5 py-4 whitespace-nowrap text-muted-foreground">
-                    {new Date(a.timestamp).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-                  </td>
-                  <td className="px-5 py-4">
-                    <StatusBadge status={a.action} />
-                  </td>
-                  <td className="px-5 py-4 text-muted-foreground">{a.details}</td>
-                  <td className="px-5 py-4 text-right font-medium">{a.amount === null ? "—" : <Taka value={a.amount} />}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          </Link>
         </div>
       </div>
+
+      <SaleDetailDialog transaction={selectedTx} onClose={() => setSelectedTx(null)} />
     </AppShell>
   );
 }

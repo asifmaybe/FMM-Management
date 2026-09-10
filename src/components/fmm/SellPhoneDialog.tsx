@@ -25,8 +25,9 @@ export function SellPhoneDialog({
   onOpenChange: (open: boolean) => void;
   phone: Phone | null;
 }) {
-  const { state, recordSale } = useFmm();
+  const { state, recordSale, addCustomer } = useFmm();
 
+  const [customerId, setCustomerId] = useState("");
   const [form, setForm] = useState({
     customer_name: "",
     customer_phone: "",
@@ -42,6 +43,8 @@ export function SellPhoneDialog({
   const [pickedQty, setPickedQty] = useState("1");
   const [pickedPrice, setPickedPrice] = useState("");
   const [isGift, setIsGift] = useState(false);
+  const [paidAmountInput, setPaidAmountInput] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("Cash");
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const activeCampaigns = (state.campaigns ?? []).filter(
@@ -50,13 +53,17 @@ export function SellPhoneDialog({
 
   useEffect(() => {
     if (phone && open) {
+      const defaultSold = phone.sold_price ? String(phone.sold_price) : phone.selling_price ? String(phone.selling_price) : "";
+      setCustomerId("");
       setForm({
         customer_name: "",
         customer_phone: "",
-        sold_price: phone.sold_price ? String(phone.sold_price) : phone.selling_price ? String(phone.selling_price) : "",
+        sold_price: defaultSold,
         payment_status: "Paid",
         notes: "",
       });
+      setPaidAmountInput(defaultSold);
+      setPaymentMethod("Cash");
       setCampaignId(phone.campaign_id || "");
       setBundledAccessories([]);
       setAddingAcc(false);
@@ -66,6 +73,14 @@ export function SellPhoneDialog({
       setIsGift(false);
     }
   }, [phone, open]);
+
+  const handleCustomerSelect = (id: string) => {
+    setCustomerId(id);
+    const c = state.customers?.find((cus) => cus.id === id);
+    if (c) {
+      setForm((f) => ({ ...f, customer_name: c.name, customer_phone: c.phone }));
+    }
+  };
 
   if (!phone) return null;
 
@@ -125,6 +140,9 @@ export function SellPhoneDialog({
     0,
   );
   const grandTotal = phonePrice + accTotal;
+  const livePaid = form.payment_status === "Paid" ? grandTotal : Number(paidAmountInput) || 0;
+  const liveDue = Math.max(0, grandTotal - livePaid);
+  const computedPaymentStatus: PaymentStatus = liveDue === 0 ? "Paid" : livePaid > 0 ? "Partial" : "Pending";
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -137,13 +155,38 @@ export function SellPhoneDialog({
       return;
     }
 
+    // Auto-resolve or register customer profile
+    let finalCusId = customerId;
+    if (!finalCusId && form.customer_name.trim()) {
+      const existing = state.customers?.find(
+        (c) =>
+          (form.customer_phone.trim() && c.phone === form.customer_phone.trim()) ||
+          c.name.toLowerCase() === form.customer_name.trim().toLowerCase(),
+      );
+      if (existing) {
+        finalCusId = existing.id;
+      } else {
+        finalCusId = addCustomer({
+          name: form.customer_name.trim(),
+          phone: form.customer_phone.trim(),
+          address: "",
+          nid_number: "",
+          notes: "Auto-registered during phone sale",
+        });
+      }
+    }
+
     recordSale({
       phone_id: phone.id,
       type: "Sale",
       customer_name: form.customer_name.trim(),
       customer_phone: form.customer_phone.trim(),
+      customer_id: finalCusId,
       amount: phonePrice,
-      payment_status: form.payment_status,
+      payment_status: computedPaymentStatus,
+      payment_method: paymentMethod,
+      paid_amount: livePaid,
+      due_amount: liveDue,
       campaign_id: campaignId || null,
       notes: form.notes.trim(),
       ...(bundledAccessories.length > 0 ? { accessories: bundledAccessories } : {}),
@@ -162,16 +205,18 @@ export function SellPhoneDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg rounded-2xl">
-        <DialogHeader>
+      <DialogContent className="max-w-lg max-h-[90vh] flex flex-col rounded-2xl p-0 overflow-hidden">
+        <DialogHeader className="p-6 pb-4 border-b border-border shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <ShoppingBag className="size-5 text-emerald-600" />
             Sell Phone — {phone.brand} {phone.model}
           </DialogTitle>
         </DialogHeader>
 
-        {/* Reference Price Details */}
-        <div className="grid grid-cols-2 gap-2 rounded-xl bg-secondary/50 p-3 text-xs">
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
+          <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            {/* Reference Price Details */}
+            <div className="grid grid-cols-2 gap-2 rounded-xl bg-secondary/50 p-3 text-xs">
           <div>
             <span className="text-muted-foreground">IMEI:</span>{" "}
             <span className="font-mono font-medium">{phone.imei}</span>
@@ -192,36 +237,61 @@ export function SellPhoneDialog({
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <Label htmlFor="spd_customer_name" className="text-xs font-medium">
-              Customer Name <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              id="spd_customer_name"
-              required
-              value={form.customer_name}
-              onChange={(e) => set("customer_name", e.target.value)}
-              placeholder="e.g. Rahim Ali"
-              className="mt-1 rounded-xl"
-              autoFocus
-            />
+          {/* Customer Information */}
+          <div className="rounded-xl border border-border p-3.5 bg-card/60 space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-semibold">Customer Information</Label>
+              {(state.customers?.length ?? 0) > 0 && (
+                <select
+                  value={customerId}
+                  onChange={(e) => handleCustomerSelect(e.target.value)}
+                  className="h-7 rounded-lg border border-input bg-background px-2 text-xs"
+                >
+                  <option value="">Existing customer profile…</option>
+                  {(state.customers ?? []).map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.phone})
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="spd_customer_name" className="text-xs font-medium">
+                  Customer Name <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="spd_customer_name"
+                  required
+                  value={form.customer_name}
+                  onChange={(e) => {
+                    setCustomerId("");
+                    set("customer_name", e.target.value);
+                  }}
+                  placeholder="e.g. Rahim Ali"
+                  className="mt-1 rounded-xl"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="spd_customer_phone" className="text-xs font-medium">
+                  Customer Phone Number
+                </Label>
+                <Input
+                  id="spd_customer_phone"
+                  value={form.customer_phone}
+                  onChange={(e) => set("customer_phone", e.target.value)}
+                  placeholder="e.g. 01700-000000"
+                  className="mt-1 rounded-xl"
+                />
+              </div>
+            </div>
           </div>
 
-          <div>
-            <Label htmlFor="spd_customer_phone" className="text-xs font-medium">
-              Customer Phone Number
-            </Label>
-            <Input
-              id="spd_customer_phone"
-              value={form.customer_phone}
-              onChange={(e) => set("customer_phone", e.target.value)}
-              placeholder="e.g. 01700-000000"
-              className="mt-1 rounded-xl"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <Label htmlFor="spd_sold_price" className="text-xs font-medium">
                 Phone Sold Price (<TakaSign />) <span className="text-destructive">*</span>
@@ -231,7 +301,12 @@ export function SellPhoneDialog({
                 type="number"
                 required
                 value={form.sold_price}
-                onChange={(e) => set("sold_price", e.target.value)}
+                onChange={(e) => {
+                  set("sold_price", e.target.value);
+                  if (form.payment_status === "Paid") {
+                    setPaidAmountInput(e.target.value);
+                  }
+                }}
                 placeholder="Final sold price"
                 className="mt-1 rounded-xl font-medium"
               />
@@ -244,14 +319,67 @@ export function SellPhoneDialog({
               <select
                 id="spd_payment_status"
                 value={form.payment_status}
-                onChange={(e) => set("payment_status", e.target.value as PaymentStatus)}
+                onChange={(e) => {
+                  const val = e.target.value as PaymentStatus;
+                  set("payment_status", val);
+                  if (val === "Paid") {
+                    setPaidAmountInput(String(grandTotal));
+                  } else if (!paidAmountInput || paidAmountInput === String(grandTotal)) {
+                    setPaidAmountInput("");
+                  }
+                }}
                 className="mt-1 h-9 w-full rounded-xl border border-input bg-card px-3 text-sm"
               >
-                <option value="Paid">Paid</option>
-                <option value="Pending">Pending</option>
+                <option value="Paid">Paid in Full</option>
+                <option value="Partial">Partial Payment</option>
+                <option value="Pending">Full Due (Pending)</option>
+              </select>
+            </div>
+
+            <div>
+              <Label htmlFor="spd_payment_method" className="text-xs font-medium">
+                Payment Method
+              </Label>
+              <select
+                id="spd_payment_method"
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+                className="mt-1 h-9 w-full rounded-xl border border-input bg-card px-3 text-sm"
+              >
+                <option value="Cash">Cash</option>
+                <option value="bKash">bKash</option>
+                <option value="Nagad">Nagad</option>
+                <option value="Bank">Bank Transfer</option>
+                <option value="Card">Card</option>
               </select>
             </div>
           </div>
+
+          {form.payment_status !== "Paid" && (
+            <div className="grid grid-cols-2 gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-3">
+              <div>
+                <Label htmlFor="spd_paid_amount" className="text-xs font-medium text-foreground">
+                  Amount Paid Now (<TakaSign />)
+                </Label>
+                <Input
+                  id="spd_paid_amount"
+                  type="number"
+                  min="0"
+                  max={grandTotal}
+                  value={paidAmountInput}
+                  onChange={(e) => setPaidAmountInput(e.target.value)}
+                  placeholder="e.g. 45000"
+                  className="mt-1 rounded-xl bg-card font-medium"
+                />
+              </div>
+              <div className="flex flex-col justify-center">
+                <span className="text-xs text-muted-foreground">Remaining Due:</span>
+                <p className="text-lg font-bold text-destructive">
+                  <Taka value={liveDue} />
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* ── Campaign Association ── */}
           <div className="rounded-xl border border-border bg-card p-3 space-y-2">
@@ -470,35 +598,38 @@ export function SellPhoneDialog({
             </div>
           )}
 
-          <div>
-            <Label htmlFor="spd_notes" className="text-xs font-medium">
-              Notes (Optional)
-            </Label>
-            <Input
-              id="spd_notes"
-              value={form.notes}
-              onChange={(e) => set("notes", e.target.value)}
-              placeholder="Warranty details, payment method, etc."
-              className="mt-1 rounded-xl"
-            />
+            <div>
+              <Label htmlFor="spd_notes" className="text-xs font-medium">
+                Notes (Optional)
+              </Label>
+              <Input
+                id="spd_notes"
+                value={form.notes}
+                onChange={(e) => set("notes", e.target.value)}
+                placeholder="Warranty details, payment method, etc."
+                className="mt-1 rounded-xl"
+              />
+            </div>
           </div>
 
-          <DialogFooter className="gap-2 pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-xl"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white"
-            >
-              Confirm Sale{grandTotal > 0 ? ` · ৳${grandTotal.toLocaleString()}` : ""}
-            </Button>
-          </DialogFooter>
+          <div className="p-4 px-6 border-t border-border bg-secondary/20 shrink-0">
+            <DialogFooter className="gap-2 sm:gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-xl"
+                onClick={() => onOpenChange(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                Confirm Sale{grandTotal > 0 ? ` · ৳${grandTotal.toLocaleString()}` : ""}
+              </Button>
+            </DialogFooter>
+          </div>
         </form>
       </DialogContent>
     </Dialog>

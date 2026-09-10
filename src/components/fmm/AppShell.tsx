@@ -103,20 +103,17 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
 
         {/* Footer Actions */}
-        <div className="mt-3 border-t border-border pt-3 space-y-1">
+        <div className="mt-3 border-t border-border pt-3">
           <Link
             to="/settings"
-            className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90 shadow-xs"
+            className="flex items-center justify-between rounded-xl px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/70 transition-colors group"
+            activeProps={{ className: "bg-secondary text-foreground font-semibold" }}
           >
-            <CloudUpload className="size-3.5 shrink-0" />
-            Backup Data
-          </Link>
-          <Link
-            to="/settings"
-            className="flex items-center gap-2.5 rounded-xl px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/70 transition-colors"
-          >
-            <SettingsIcon className="size-3.5 shrink-0" strokeWidth={1.8} />
-            Settings & Backup
+            <div className="flex items-center gap-2.5">
+              <SettingsIcon className="size-4 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" strokeWidth={1.8} />
+              <span>Settings & Backup</span>
+            </div>
+            <CloudUpload className="size-3.5 text-muted-foreground/60 group-hover:text-primary transition-colors" />
           </Link>
         </div>
       </aside>
