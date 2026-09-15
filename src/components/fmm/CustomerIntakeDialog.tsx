@@ -1,12 +1,13 @@
-import { Camera, FileText, Plus, ShieldCheck } from "lucide-react";
+import { Box, Camera, FileText, Plus, ShieldCheck } from "lucide-react";
 import { useEffect, useState, type ChangeEvent } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Field } from "@/components/fmm/AddPhoneDialog";
 import { useFmm } from "@/lib/fmm-store";
-import type { PhoneCondition, StoredFile } from "@/lib/fmm-types";
+import { type PhoneCondition, type StoredFile, PHONE_BRAND_OPTIONS, PHONE_RAM_OPTIONS, PHONE_ROM_OPTIONS } from "@/lib/fmm-types";
 import { TakaSign } from "@/components/fmm/Taka";
 import { processStoredFile, isImageDocument } from "@/lib/fmm-file";
 
@@ -29,14 +30,15 @@ export function CustomerIntakeDialog({ open, onOpenChange }: { open: boolean; on
   const [docs, setDocs] = useState<StoredFile[]>([]);
   const [photos, setPhotos] = useState<StoredFile[]>([]);
   const [phone, setPhone] = useState({
-    brand: "Samsung",
+    brand: "Apple",
     model: "",
-    rom: "",
-    ram: "",
+    rom: "128GB",
+    ram: "8GB",
     condition: "Used - Good" as PhoneCondition,
     imei: "",
     bought_price: "",
     agreed_price: "",
+    with_box: false,
   });
   const [damage, setDamage] = useState({ screen_scratch: false, body_dent: false, battery_issue: false, camera_blurry: false });
 
@@ -48,14 +50,15 @@ export function CustomerIntakeDialog({ open, onOpenChange }: { open: boolean; on
     setDocs([]);
     setPhotos([]);
     setPhone({
-      brand: "Samsung",
+      brand: "Apple",
       model: "",
-      rom: "",
-      ram: "",
+      rom: "128GB",
+      ram: "8GB",
       condition: "Used - Good",
       imei: "",
       bought_price: "",
       agreed_price: "",
+      with_box: false,
     });
     setDamage({ screen_scratch: false, body_dent: false, battery_issue: false, camera_blurry: false });
   };
@@ -99,6 +102,7 @@ export function CustomerIntakeDialog({ open, onOpenChange }: { open: boolean; on
         condition_notes: "",
         damage_checklist: damage,
         warranty_repair_notes: "",
+        with_box: phone.with_box,
       },
     );
     toast.success("Saved and added to stock");
@@ -192,16 +196,40 @@ export function CustomerIntakeDialog({ open, onOpenChange }: { open: boolean; on
               <h3 className="mb-5 text-lg font-bold">Phone Details</h3>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Brand">
-                  <Input value={phone.brand} onChange={(e) => setPhone({ ...phone, brand: e.target.value })} />
+                  <select
+                    value={phone.brand}
+                    onChange={(e) => setPhone({ ...phone, brand: e.target.value })}
+                    className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm font-medium"
+                  >
+                    {PHONE_BRAND_OPTIONS.map((b) => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                  </select>
                 </Field>
                 <Field label="Model">
-                  <Input value={phone.model} onChange={(e) => setPhone({ ...phone, model: e.target.value })} placeholder="e.g. Galaxy S23 Ultra" />
+                  <Input value={phone.model} onChange={(e) => setPhone({ ...phone, model: e.target.value })} placeholder="e.g. iPhone 14 Pro, Galaxy S23" />
                 </Field>
                 <Field label="ROM (Storage)">
-                  <Input value={phone.rom} onChange={(e) => setPhone({ ...phone, rom: e.target.value })} placeholder="e.g. 128GB, 256GB" />
+                  <select
+                    value={phone.rom}
+                    onChange={(e) => setPhone({ ...phone, rom: e.target.value })}
+                    className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm font-medium"
+                  >
+                    {PHONE_ROM_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
                 </Field>
                 <Field label="RAM">
-                  <Input value={phone.ram} onChange={(e) => setPhone({ ...phone, ram: e.target.value })} placeholder="e.g. 6GB, 8GB" />
+                  <select
+                    value={phone.ram}
+                    onChange={(e) => setPhone({ ...phone, ram: e.target.value })}
+                    className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm font-medium"
+                  >
+                    {PHONE_RAM_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
                 </Field>
                 <Field label="Condition">
                   <select
@@ -234,6 +262,32 @@ export function CustomerIntakeDialog({ open, onOpenChange }: { open: boolean; on
                     }}
                   />
                 </Field>
+                <div className="sm:col-span-2">
+                  <div
+                    onClick={() => setPhone((p) => ({ ...p, with_box: !p.with_box }))}
+                    className={`flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-colors select-none ${
+                      phone.with_box
+                        ? "border-emerald-500/40 bg-emerald-500/10 text-foreground"
+                        : "border-border/80 bg-secondary/30 hover:bg-secondary/60 text-muted-foreground"
+                    }`}
+                  >
+                    <Checkbox
+                      id="intake-with-box"
+                      checked={phone.with_box}
+                      onCheckedChange={(checked) => setPhone((p) => ({ ...p, with_box: Boolean(checked) }))}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                    <div className="flex items-center gap-2">
+                      <Box className={`size-4 ${phone.with_box ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`} />
+                      <label htmlFor="intake-with-box" className="text-sm font-semibold cursor-pointer text-foreground">
+                        With Box
+                      </label>
+                      <span className="text-xs">
+                        {phone.with_box ? "(Includes device box)" : "(No box included)"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <p className="mt-6 mb-2 text-xs font-semibold tracking-wide text-muted-foreground">DAMAGE CHECKLIST</p>

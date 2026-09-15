@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Box, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { useFmm } from "@/lib/fmm-store";
-import type { PhoneCondition } from "@/lib/fmm-types";
+import { Checkbox } from "@/components/ui/checkbox";
+import { normalizeBatteryHealth, useFmm } from "@/lib/fmm-store";
+import { type PhoneCondition, PHONE_BRAND_OPTIONS, PHONE_RAM_OPTIONS, PHONE_ROM_OPTIONS } from "@/lib/fmm-types";
 import { TakaSign } from "@/components/fmm/Taka";
 
 const conditions: PhoneCondition[] = ["New", "Used - A", "Used - B", "Refurbished"];
@@ -16,20 +17,24 @@ interface Row {
   model: string;
   rom: string;
   ram: string;
+  battery_health: string;
   condition: PhoneCondition;
   purchase_price: string;
   selling_price: string;
+  with_box: boolean;
 }
 
 const emptyRow = (): Row => ({
   imei: "",
-  brand: "",
+  brand: "Apple",
   model: "",
-  rom: "",
-  ram: "",
+  rom: "128GB",
+  ram: "8GB",
+  battery_health: "",
   condition: "New",
   purchase_price: "",
   selling_price: "",
+  with_box: false,
 });
 
 export function BulkAddPhonesDialog({
@@ -64,8 +69,8 @@ export function BulkAddPhonesDialog({
     const phoneList = filled.map((r) => ({
       imei: r.imei.trim(),
       imei_secondary: null,
-      battery_health: null,
-      brand: r.brand.trim(),
+      battery_health: normalizeBatteryHealth(r.battery_health),
+      brand: r.brand.trim() || "Apple",
       model: r.model.trim(),
       storage_ram: [r.rom.trim(), r.ram.trim()].filter(Boolean).join(" / ") || "Standard",
       condition: r.condition,
@@ -78,6 +83,7 @@ export function BulkAddPhonesDialog({
       condition_notes: "",
       damage_checklist: { screen_scratch: false, body_dent: false, battery_issue: false, camera_blurry: false },
       warranty_repair_notes: "",
+      with_box: r.with_box,
     }));
 
     addPhonesBatch(phoneList, {
@@ -92,17 +98,17 @@ export function BulkAddPhonesDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl rounded-2xl">
+      <DialogContent className="max-w-6xl rounded-2xl">
         <DialogHeader>
           <DialogTitle>Bulk Add Phones — {supplierName}</DialogTitle>
         </DialogHeader>
 
         <div className="max-h-[55vh] overflow-auto rounded-xl border border-border">
-          <table className="w-full min-w-[920px] text-sm">
+          <table className="w-full min-w-[1080px] text-sm">
             <thead className="sticky top-0 bg-secondary/80 text-left text-xs text-muted-foreground">
               <tr>
-                {["IMEI", "Brand", "Model", "ROM", "RAM", "Condition", <>Buy (<TakaSign />)</>, <>Sell (<TakaSign />)</>, ""].map((h, hi) => (
-                  <th key={hi} className="px-3 py-2 font-medium">
+                {["IMEI", "Brand", "Model", "ROM", "RAM", "Battery %", "Condition", "Box", <>Buy (<TakaSign />)</>, <>Sell (<TakaSign />)</>, ""].map((h, hi) => (
+                  <th key={hi} className={`px-3 py-2 font-medium ${h === "Box" ? "text-center w-14" : ""}`}>
                     {h}
                   </th>
                 ))}
@@ -112,25 +118,67 @@ export function BulkAddPhonesDialog({
               {rows.map((r, i) => (
                 <tr key={i}>
                   <td className="px-2 py-2">
-                    <Input className="h-9" value={r.imei} onChange={(e) => set(i, "imei", e.target.value)} placeholder="15-digit" />
+                    <Input className="h-9 w-36" value={r.imei} onChange={(e) => set(i, "imei", e.target.value)} placeholder="15-digit" />
                   </td>
                   <td className="px-2 py-2">
-                    <Input className="h-9" value={r.brand} onChange={(e) => set(i, "brand", e.target.value)} placeholder="Samsung" />
+                    <select
+                      value={r.brand}
+                      onChange={(e) => set(i, "brand", e.target.value)}
+                      className="h-9 w-28 rounded-md border border-input bg-transparent px-2 text-xs font-medium"
+                    >
+                      {PHONE_BRAND_OPTIONS.map((b) => (
+                        <option key={b} value={b}>
+                          {b}
+                        </option>
+                      ))}
+                    </select>
                   </td>
                   <td className="px-2 py-2">
-                    <Input className="h-9" value={r.model} onChange={(e) => set(i, "model", e.target.value)} placeholder="Galaxy S23" />
+                    <Input className="h-9 w-32" value={r.model} onChange={(e) => set(i, "model", e.target.value)} placeholder="iPhone 15" />
                   </td>
                   <td className="px-2 py-2">
-                    <Input className="h-9 w-24" value={r.rom} onChange={(e) => set(i, "rom", e.target.value)} placeholder="128GB" />
+                    <select
+                      value={r.rom}
+                      onChange={(e) => set(i, "rom", e.target.value)}
+                      className="h-9 w-24 rounded-md border border-input bg-transparent px-2 text-xs font-medium"
+                    >
+                      {PHONE_ROM_OPTIONS.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
                   </td>
                   <td className="px-2 py-2">
-                    <Input className="h-9 w-20" value={r.ram} onChange={(e) => set(i, "ram", e.target.value)} placeholder="8GB" />
+                    <select
+                      value={r.ram}
+                      onChange={(e) => set(i, "ram", e.target.value)}
+                      className="h-9 w-20 rounded-md border border-input bg-transparent px-2 text-xs font-medium"
+                    >
+                      {PHONE_RAM_OPTIONS.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-2 py-2">
+                    <Input
+                      className="h-9 w-20 text-xs"
+                      value={r.battery_health}
+                      onChange={(e) => set(i, "battery_health", e.target.value)}
+                      onBlur={() => {
+                        const v = normalizeBatteryHealth(r.battery_health);
+                        if (v) set(i, "battery_health", v);
+                      }}
+                      placeholder="85%"
+                    />
                   </td>
                   <td className="px-2 py-2">
                     <select
                       value={r.condition}
                       onChange={(e) => set(i, "condition", e.target.value)}
-                      className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+                      className="h-9 w-24 rounded-md border border-input bg-transparent px-2 text-xs"
                     >
                       {conditions.map((c) => (
                         <option key={c} value={c}>
@@ -138,6 +186,17 @@ export function BulkAddPhonesDialog({
                         </option>
                       ))}
                     </select>
+                  </td>
+                  <td className="px-2 py-2 text-center">
+                    <div className="flex items-center justify-center">
+                      <Checkbox
+                        checked={r.with_box}
+                        onCheckedChange={(c) =>
+                          setRows((prev) => prev.map((row, idx) => (idx === i ? { ...row, with_box: Boolean(c) } : row)))
+                        }
+                        title={r.with_box ? "With Box (Checked)" : "No Box (Unchecked)"}
+                      />
+                    </div>
                   </td>
                   <td className="px-2 py-2">
                     <Input className="h-9 w-24" type="number" value={r.purchase_price} onChange={(e) => set(i, "purchase_price", e.target.value)} />

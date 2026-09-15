@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { emptyState, loadState, saveState, seedState, uid } from "./fmm-db";
+import { emptyState, loadState, saveState, uid } from "./fmm-db";
 import type {
   Accessory,
   AccessoryMovement,
@@ -37,6 +37,8 @@ export interface FmmContextValue {
   state: FmmState;
   ready: boolean;
   addPhone: (p: Omit<Phone, "id" | "created_at" | "updated_at">) => void;
+  updatePhone: (phoneId: string, patch: Partial<Phone>) => void;
+  deletePhone: (phoneId: string) => void;
   addPhonesBatch: (
     phones: Omit<Phone, "id" | "created_at" | "updated_at">[],
     purchaseOptions?: {
@@ -60,6 +62,7 @@ export interface FmmContextValue {
     paid_amount?: number;
     due_amount?: number;
     campaign_id?: string | null;
+    memo_no?: string | null;
     notes?: string;
     /** Optional accessories bundled with this phone sale */
     accessories?: { accessory_id: string; quantity: number; unit_price: number; is_gift?: boolean | undefined }[];
@@ -166,7 +169,6 @@ export interface FmmContextValue {
   runBackup: (auto?: boolean) => Promise<BackupRecord | null>;
   restoreBackup: (file: File) => Promise<void>;
   resetData: () => void;
-  loadDemoData: () => void;
 }
 
 const FmmContext = createContext<FmmContextValue | null>(null);
@@ -392,6 +394,54 @@ export function FmmProvider({ children }: { children: ReactNode }) {
     );
   }, [addPhonesBatch]);
 
+  const updatePhone = useCallback<FmmContextValue["updatePhone"]>((phoneId, patch) => {
+    const now = new Date().toISOString();
+    setState((prev) => {
+      const existing = prev.phones.find((p) => p.id === phoneId);
+      if (!existing) return prev;
+      const updated: Phone = {
+        ...existing,
+        ...patch,
+        updated_at: now,
+      };
+      return {
+        ...prev,
+        phones: prev.phones.map((p) => (p.id === phoneId ? updated : p)),
+        audit_log: [
+          log(
+            "Phone Updated",
+            "phone",
+            phoneId,
+            `Updated ${updated.brand} ${updated.model} (IMEI: …${updated.imei.slice(-4)})`,
+            updated.selling_price,
+          ),
+          ...prev.audit_log,
+        ],
+      };
+    });
+  }, []);
+
+  const deletePhone = useCallback<FmmContextValue["deletePhone"]>((phoneId) => {
+    setState((prev) => {
+      const target = prev.phones.find((p) => p.id === phoneId);
+      if (!target) return prev;
+      return {
+        ...prev,
+        phones: prev.phones.filter((p) => p.id !== phoneId),
+        audit_log: [
+          log(
+            "Phone Deleted",
+            "phone",
+            phoneId,
+            `Deleted ${target.brand} ${target.model} (IMEI: …${target.imei.slice(-4)}) from inventory`,
+            target.purchase_price,
+          ),
+          ...prev.audit_log,
+        ],
+      };
+    });
+  }, []);
+
   const addSupplier = useCallback<FmmContextValue["addSupplier"]>((s) => {
     setState((prev) => {
       const supplier: Supplier = { ...s, id: uid("sup"), created_at: new Date().toISOString() };
@@ -480,6 +530,7 @@ export function FmmProvider({ children }: { children: ReactNode }) {
         paid_amount: paidAmount,
         due_amount: dueAmount,
         campaign_id: input.campaign_id ?? null,
+        memo_no: input.memo_no ?? null,
         items: [
           {
             type: "phone",
@@ -1583,12 +1634,6 @@ export function FmmProvider({ children }: { children: ReactNode }) {
     void saveState(fresh);
   }, []);
 
-  const loadDemoData = useCallback(() => {
-    const seeded = seedState();
-    setState(seeded);
-    void saveState(seeded);
-  }, []);
-
   useEffect(() => {
     if (!ready) return;
     if (state.settings.auto_backup === "off") return;
@@ -1605,6 +1650,8 @@ export function FmmProvider({ children }: { children: ReactNode }) {
       state,
       ready,
       addPhone,
+      updatePhone,
+      deletePhone,
       addPhonesBatch,
       addSupplier,
       recordSale,
@@ -1636,12 +1683,13 @@ export function FmmProvider({ children }: { children: ReactNode }) {
       runBackup,
       restoreBackup,
       resetData,
-      loadDemoData,
     }),
     [
       state,
       ready,
       addPhone,
+      updatePhone,
+      deletePhone,
       addPhonesBatch,
       addSupplier,
       recordSale,
@@ -1673,7 +1721,6 @@ export function FmmProvider({ children }: { children: ReactNode }) {
       runBackup,
       restoreBackup,
       resetData,
-      loadDemoData,
     ],
   );
 
@@ -1696,6 +1743,22 @@ export function taka(n: number): string {
 
 export function daysInStock(created_at: string): number {
   return Math.max(0, Math.floor((Date.now() - new Date(created_at).getTime()) / 86400000));
+}
+
+export function formatBatteryHealth(val: string | null | undefined): string {
+  if (!val) return "—";
+  const trimmed = String(val).trim();
+  if (!trimmed) return "—";
+  if (/^\d+$/.test(trimmed)) return `${trimmed}%`;
+  return trimmed.endsWith("%") ? trimmed : `${trimmed}%`;
+}
+
+export function normalizeBatteryHealth(val: string | null | undefined): string | null {
+  if (!val) return null;
+  const trimmed = String(val).trim();
+  if (!trimmed) return null;
+  if (/^\d+$/.test(trimmed)) return `${trimmed}%`;
+  return trimmed;
 }
 
 export function supplierName(state: FmmState, phone: Phone): string {
@@ -1864,9 +1927,17 @@ export function accessoryBusinessMetrics(state: FmmState) {
   const totalValue = accessories.reduce((s, a) => s + a.quantity * a.purchase_price, 0);
   const lowStock = accessories.filter((a) => a.quantity <= a.min_threshold);
 
-  const todayStr = new Date().toDateString();
+  const now = new Date();
+  const todayStr = now.toDateString();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+
   const accTxs = (state.transactions ?? []).filter((t) => t.items && t.items.some((it) => it.type === "accessory"));
   const todayAccTxs = accTxs.filter((t) => new Date(t.date).toDateString() === todayStr);
+  const thisMonthAccTxs = accTxs.filter((t) => {
+    const d = new Date(t.date);
+    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+  });
 
   let accRevenue = 0;
   let accCOGS = 0;
@@ -1903,6 +1974,14 @@ export function accessoryBusinessMetrics(state: FmmState) {
     return s + accSub;
   }, 0);
 
+  const monthRevenue = thisMonthAccTxs.reduce((s, t) => {
+    const accSub = t.items?.filter((it) => it.type === "accessory" && !it.is_gift)
+      .reduce((sum, it) => sum + (it.subtotal ?? (it.unit_price * (it.quantity || 1))), 0) ?? 0;
+    return s + accSub;
+  }, 0);
+
+  const monthOrderCount = thisMonthAccTxs.length;
+
   return {
     totalQuantity,
     totalValue,
@@ -1910,6 +1989,8 @@ export function accessoryBusinessMetrics(state: FmmState) {
     lowStockItems: lowStock,
     soldTodayCount: todayAccTxs.length,
     soldTodayRevenue,
+    monthRevenue,
+    monthOrderCount,
     totalRevenue: accRevenue,
     cashInflow: accCashInflow,
     totalCOGS: accCOGS,

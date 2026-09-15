@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowLeft, Check, HandCoins, Layers, Receipt, ShoppingCart } from "lucide-react";
+import { ArrowLeft, Box, Check, HandCoins, Layers, Receipt, Search, ShoppingCart, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AppShell, PageHeader } from "@/components/fmm/AppShell";
@@ -7,6 +7,7 @@ import { BulkAddPhonesDialog } from "@/components/fmm/BulkAddPhonesDialog";
 import { RecordSupplierPaymentDialog } from "@/components/fmm/RecordSupplierPaymentDialog";
 import { StatusBadge } from "@/components/fmm/StatusBadge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { daysInStock, getSupplierPhonesPaymentMap, supplierDueBalance, supplierTotalOwed, supplierTotalPaid, useFmm } from "@/lib/fmm-store";
 import { Taka, TakaSign } from "@/components/fmm/Taka";
 import type { Phone } from "@/lib/fmm-types";
@@ -28,13 +29,65 @@ function SupplierDetailPage() {
   const { state, recordSupplierPayment } = useFmm();
   const [status, setStatus] = useState("All");
   const [brand, setBrand] = useState("All");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState("newest");
   const [bulkOpen, setBulkOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
 
   const supplier = state.suppliers.find((s) => s.id === supplierId);
-  const all = state.phones.filter((p) => p.supplier_id === supplierId);
-  const brands = ["All", ...new Set(all.map((p) => p.brand))];
-  const rows = all.filter((p) => (status === "All" || p.status === status) && (brand === "All" || p.brand === brand));
+  const all = useMemo(() => state.phones.filter((p) => p.supplier_id === supplierId), [state.phones, supplierId]);
+  const brands = useMemo(() => ["All", ...new Set(all.map((p) => p.brand))], [all]);
+
+  const statusCounts = useMemo(() => {
+    return {
+      All: all.length,
+      Available: all.filter((p) => p.status === "Available").length,
+      Sold: all.filter((p) => p.status === "Sold").length,
+      Exchange: all.filter((p) => p.status === "Exchange").length,
+    };
+  }, [all]);
+
+  const rows = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const filtered = all.filter((p) => {
+      if (status !== "All" && p.status !== status) return false;
+      if (brand !== "All" && p.brand !== brand) return false;
+      if (q) {
+        const matchImei = p.imei.toLowerCase().includes(q) || (p.imei_secondary ? p.imei_secondary.toLowerCase().includes(q) : false);
+        const matchBrand = p.brand.toLowerCase().includes(q);
+        const matchModel = p.model.toLowerCase().includes(q);
+        const matchSpecs = (p.storage_ram || "").toLowerCase().includes(q);
+        const matchNotes = (p.condition_notes || "").toLowerCase().includes(q);
+        if (!matchImei && !matchBrand && !matchModel && !matchSpecs && !matchNotes) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    return [...filtered].sort((a, b) => {
+      switch (sortBy) {
+        case "newest":
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        case "oldest":
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        case "brand-asc":
+          return a.brand.localeCompare(b.brand) || a.model.localeCompare(b.model);
+        case "brand-desc":
+          return b.brand.localeCompare(a.brand) || b.model.localeCompare(a.model);
+        case "price-desc":
+          return b.purchase_price - a.purchase_price;
+        case "price-asc":
+          return a.purchase_price - b.purchase_price;
+        case "days-desc":
+          return daysInStock(b.created_at) - daysInStock(a.created_at);
+        case "days-asc":
+          return daysInStock(a.created_at) - daysInStock(b.created_at);
+        default:
+          return 0;
+      }
+    });
+  }, [all, status, brand, searchQuery, sortBy]);
 
   const payments = (state.supplier_payments ?? []).filter((sp) => sp.supplier_id === supplierId);
   const due = supplier ? supplierDueBalance(state, supplier.id) : 0;
@@ -151,40 +204,113 @@ function SupplierDetailPage() {
         ) : null}
 
         {/* Phones from this Supplier */}
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-base font-semibold">Supplied Devices</h3>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <h3 className="text-base font-semibold">Supplied Devices</h3>
+            <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-muted-foreground">
+              {rows.length} {rows.length === 1 ? "device" : "devices"}
+            </span>
+          </div>
         </div>
 
-        <div className="mb-4 flex flex-wrap gap-2">
-          {["All", "Available", "Sold", "Exchange"].map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatus(s)}
-              className={`rounded-lg border border-border px-3 py-1.5 text-xs font-medium ${status === s ? "bg-primary text-primary-foreground" : "bg-card hover:bg-secondary"}`}
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2.5">
+          {/* Left side: Search bar & Sorting option */}
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
+              <Input
+                type="text"
+                placeholder="Search IMEI, model, specs..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-8 w-52 sm:w-64 rounded-lg pl-8 pr-7 text-xs bg-card"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5 rounded"
+                  aria-label="Clear search"
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
+            </div>
+
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="h-8 w-36 rounded-lg border border-border bg-card px-2 text-xs font-medium text-foreground cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring"
             >
-              {s}
-            </button>
-          ))}
-          <select
-            value={brand}
-            onChange={(e) => setBrand(e.target.value)}
-            className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium"
-          >
-            {brands.map((b) => (
-              <option key={b} value={b}>
-                {b === "All" ? "All brands" : b}
-              </option>
-            ))}
-          </select>
+              <option value="newest">Sort: Newest</option>
+              <option value="oldest">Sort: Oldest</option>
+              <option value="brand-asc">Brand: A → Z</option>
+              <option value="brand-desc">Brand: Z → A</option>
+              <option value="price-desc">Price: High → Low</option>
+              <option value="price-asc">Price: Low → High</option>
+              <option value="days-desc">Days: Most → Least</option>
+              <option value="days-asc">Days: Least → Most</option>
+            </select>
+          </div>
+
+          {/* Right side: Status and Brand filters */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              {(["All", "Available", "Sold", "Exchange"] as const).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setStatus(s)}
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    status === s
+                      ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                      : "border-border bg-card hover:bg-secondary text-foreground"
+                  }`}
+                >
+                  <span>{s}</span>
+                  <span
+                    className={`rounded-full px-1.5 py-0.2 text-[10px] font-semibold ${
+                      status === s
+                        ? "bg-primary-foreground/20 text-primary-foreground"
+                        : "bg-secondary text-muted-foreground"
+                    }`}
+                  >
+                    {statusCounts[s]}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <select
+              value={brand}
+              onChange={(e) => setBrand(e.target.value)}
+              className="h-8 rounded-lg border border-border bg-card px-2.5 text-xs font-medium text-foreground cursor-pointer"
+            >
+              {brands.map((b) => (
+                <option key={b} value={b}>
+                  {b === "All" ? "All brands" : b}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="overflow-x-auto rounded-xl border border-border bg-card">
-          <table className="w-full min-w-[860px] text-sm">
+          <table className="w-full min-w-[920px] text-sm">
             <thead className="bg-secondary/60 text-left text-muted-foreground">
               <tr>
-                {["Date", "IMEI", "Brand / Model", "Specs", "Price (Buy/Sell)", "Status", "Payment", "Days", "Action"].map((h) => (
-                  <th key={h} className={`px-5 py-3 font-medium ${h === "Days" || h.startsWith("Price") || h === "Action" ? "text-right" : ""}`}>
-                    {h}
+                {[
+                  { label: "Date", className: "whitespace-nowrap min-w-[85px]" },
+                  { label: "IMEI", className: "whitespace-nowrap min-w-[125px]" },
+                  { label: "Brand / Model", className: "min-w-[210px]" },
+                  { label: "Specs", className: "whitespace-nowrap min-w-[85px]" },
+                  { label: "Price (Buy/Sell)", className: "text-right whitespace-nowrap min-w-[130px]" },
+                  { label: "Status", className: "whitespace-nowrap min-w-[80px]" },
+                  { label: "Payment", className: "whitespace-nowrap min-w-[100px]" },
+                  { label: "Days", className: "text-right whitespace-nowrap min-w-[45px]" },
+                  { label: "Action", className: "text-right whitespace-nowrap min-w-[80px]" },
+                ].map((col) => (
+                  <th key={col.label} className={`px-3 py-2.5 font-medium ${col.className}`}>
+                    {col.label}
                   </th>
                 ))}
               </tr>
@@ -196,32 +322,39 @@ function SupplierDetailPage() {
                 const remainingDue = payInfo ? payInfo.due : p.purchase_price;
                 return (
                   <tr key={p.id} className="hover:bg-secondary/20 transition-colors">
-                    <td className="px-5 py-4 whitespace-nowrap text-muted-foreground">
+                    <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">
                       {new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </td>
-                    <td className="px-5 py-4 font-mono">{p.imei}</td>
-                    <td className="px-5 py-4 font-semibold">
-                      {p.brand} {p.model}
+                    <td className="px-3 py-2.5 font-mono whitespace-nowrap">{p.imei}</td>
+                    <td className="px-3 py-2.5 font-semibold min-w-[210px] leading-snug">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span>{p.brand} {p.model}</span>
+                        {p.with_box ? (
+                          <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" title="Includes original box">
+                            <Box className="size-2.5" /> Box
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
-                    <td className="px-5 py-4 text-muted-foreground">{p.storage_ram}</td>
-                    <td className="px-5 py-4 text-right whitespace-nowrap">
+                    <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">{p.storage_ram || "—"}</td>
+                    <td className="px-3 py-2.5 text-right whitespace-nowrap">
                       {<Taka value={p.purchase_price} />} / {p.selling_price ? <Taka value={p.selling_price} /> : "—"}
                     </td>
-                    <td className="px-5 py-4">
+                    <td className="px-3 py-2.5 whitespace-nowrap">
                       <StatusBadge status={p.status} />
                     </td>
-                    <td className="px-5 py-4">
+                    <td className="px-3 py-2.5 whitespace-nowrap">
                       <div className="flex flex-col gap-0.5">
                         <StatusBadge status={payStatus} />
                         {payInfo && payInfo.paid > 0 && payInfo.due > 0 ? (
-                          <span className="text-[10px] text-muted-foreground">
+                          <span className="text-[10px] text-muted-foreground whitespace-nowrap">
                             Paid: {payInfo.paid.toLocaleString()} ৳ · Due: {payInfo.due.toLocaleString()} ৳
                           </span>
                         ) : null}
                       </div>
                     </td>
-                    <td className="px-5 py-4 text-right">{daysInStock(p.created_at)}</td>
-                    <td className="px-5 py-4 text-right whitespace-nowrap">
+                    <td className="px-3 py-2.5 text-right whitespace-nowrap">{daysInStock(p.created_at)}</td>
+                    <td className="px-3 py-2.5 text-right whitespace-nowrap">
                       {payStatus === "Paid" ? (
                         <span className="inline-flex items-center gap-1 text-xs text-success font-medium">
                           <Check className="size-3.5" /> Paid
@@ -243,7 +376,9 @@ function SupplierDetailPage() {
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-5 py-10 text-center text-muted-foreground">
-                    No phones from this supplier match the filters.
+                    {searchQuery
+                      ? `No phones match "${searchQuery}".`
+                      : "No phones from this supplier match the filters."}
                   </td>
                 </tr>
               ) : null}

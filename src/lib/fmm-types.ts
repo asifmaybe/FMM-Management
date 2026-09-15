@@ -49,9 +49,31 @@ export interface Phone {
   warranty_repair_notes: string;
   campaign_id?: string | null;
   warranty_days?: number | null;
+  with_box?: boolean;
   created_at: string;
   updated_at: string;
 }
+
+export const PHONE_RAM_OPTIONS = ["4GB", "6GB", "8GB", "12GB", "16GB", "24GB"] as const;
+export const PHONE_ROM_OPTIONS = ["64GB", "128GB", "256GB", "512GB", "1TB", "2TB"] as const;
+export const PHONE_BRAND_OPTIONS = [
+  "Apple",
+  "Samsung",
+  "Xiaomi",
+  "Google",
+  "OnePlus",
+  "Vivo",
+  "Oppo",
+  "Realme",
+  "Infinix",
+  "Tecno",
+  "Honor",
+  "Motorola",
+  "Nothing",
+  "Sony",
+  "Huawei",
+  "Other",
+] as const;
 
 // -------------------------------------------------------------
 // Accessories Domain
@@ -183,6 +205,7 @@ export interface Transaction {
   trade_in?: TransactionTradeIn | undefined;
   return_info?: TransactionReturnInfo | undefined;
   campaign_id?: string | null;
+  memo_no?: string | null;
   date: string;
   notes: string;
 }
@@ -364,6 +387,8 @@ export interface ExchangeRecord {
 // -------------------------------------------------------------
 export type AuditAction =
   | "Added"
+  | "Phone Updated"
+  | "Phone Deleted"
   | "Sold"
   | "Exchange"
   | "Payment Pending"

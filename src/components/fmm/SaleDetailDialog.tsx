@@ -2,21 +2,27 @@ import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   ArrowLeftRight,
+  Box,
   Calendar,
   Gift,
   HandCoins,
+  Pencil,
   Receipt,
   RotateCcw,
   ShieldCheck,
   Smartphone,
   Tag,
+  TrendingUp,
   User,
+  X,
+  Check,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { StatusBadge } from "@/components/fmm/StatusBadge";
 import { Button } from "@/components/ui/button";
-import { Taka, TakaSign } from "@/components/fmm/Taka";
-import { useFmm, getTransactionPayment } from "@/lib/fmm-store";
+import { Input } from "@/components/ui/input";
+import { Taka } from "@/components/fmm/Taka";
+import { useFmm, getTransactionPayment, formatBatteryHealth } from "@/lib/fmm-store";
 import { CollectDueDialog } from "@/components/fmm/CollectDueDialog";
 import { ProcessReturnDialog } from "@/components/fmm/ProcessReturnDialog";
 import { InspectTradeInDialog } from "@/components/fmm/InspectTradeInDialog";
@@ -28,10 +34,16 @@ interface SaleDetailDialogProps {
 }
 
 export function SaleDetailDialog({ transaction, onClose }: SaleDetailDialogProps) {
-  const { state } = useFmm();
+  const { state, updatePhone, updateTransaction } = useFmm();
   const [collectOpen, setCollectOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
   const [inspectOpen, setInspectOpen] = useState(false);
+
+  // Editable cost state
+  const [editingPhoneCost, setEditingPhoneCost] = useState(false);
+  const [phoneCostDraft, setPhoneCostDraft] = useState("");
+  const [editingItemIdx, setEditingItemIdx] = useState<number | null>(null);
+  const [itemCostDraft, setItemCostDraft] = useState("");
 
   if (!transaction) return null;
 
@@ -50,15 +62,54 @@ export function SaleDetailDialog({ transaction, onClose }: SaleDetailDialogProps
   const isReturned = Boolean(tx.return_info);
   const isTradeInInInspection = tradeInPhone?.status === "In Inspection";
 
-  // Calculate gross profit for staff insights
-  let totalCost = 0;
-  if (phone) {
-    totalCost += phone.purchase_price || 0;
+  // --- Profit calculations ---
+  const phoneSoldPrice = phone?.sold_price ?? tx.amount;
+  const phonePurchasePrice = phone?.purchase_price ?? 0;
+  const profitFromPhone = phone ? phoneSoldPrice - phonePurchasePrice : 0;
+
+  const accessoryItems = (tx.items ?? []).filter((i) => i.type === "accessory" && !i.is_gift);
+  const profitFromAccessories = accessoryItems.reduce(
+    (sum, item) => sum + (item.unit_price - (item.cost_price ?? 0)) * item.quantity,
+    0,
+  );
+
+  // Handlers for phone purchase cost edit
+  function startEditPhoneCost() {
+    setPhoneCostDraft(String(phonePurchasePrice));
+    setEditingPhoneCost(true);
   }
-  if (tx.items && tx.items.length > 0) {
-    totalCost += tx.items.reduce((sum, item) => sum + (item.cost_price || 0) * (item.quantity || 1), 0);
+  function cancelEditPhoneCost() {
+    setEditingPhoneCost(false);
+    setPhoneCostDraft("");
   }
-  const grossProfit = pay.total - totalCost;
+  function savePhoneCost() {
+    const val = parseFloat(phoneCostDraft);
+    if (!isNaN(val) && val >= 0 && phone) {
+      updatePhone(phone.id, { purchase_price: val });
+    }
+    setEditingPhoneCost(false);
+  }
+
+  // Handlers for accessory item cost edit
+  function startEditItemCost(idx: number) {
+    const item = (tx.items ?? [])[idx];
+    setItemCostDraft(String(item?.cost_price ?? 0));
+    setEditingItemIdx(idx);
+  }
+  function cancelEditItemCost() {
+    setEditingItemIdx(null);
+    setItemCostDraft("");
+  }
+  function saveItemCost(idx: number) {
+    const val = parseFloat(itemCostDraft);
+    if (!isNaN(val) && val >= 0 && tx.items) {
+      const updatedItems = tx.items.map((item, i) =>
+        i === idx ? { ...item, cost_price: val } : item,
+      );
+      updateTransaction(tx.id, { items: updatedItems });
+    }
+    setEditingItemIdx(null);
+  }
 
   return (
     <>
@@ -82,31 +133,78 @@ export function SaleDetailDialog({ transaction, onClose }: SaleDetailDialogProps
           </DialogHeader>
 
           <div className="space-y-5 pt-1 text-sm">
-            {/* Top Key Figures Card */}
-            <div className="grid grid-cols-3 gap-3 rounded-xl border border-border bg-secondary/30 p-4 text-center">
-              <div className="rounded-lg bg-card p-2.5 border border-border/60">
-                <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide block">
-                  Total Amount
-                </span>
-                <p className="mt-1 text-base font-bold text-foreground">
-                  <Taka value={pay.total} />
-                </p>
+            {/* Top Key Figures: Payment + Profit row */}
+            <div className="grid grid-cols-2 gap-3">
+              {/* Payment card */}
+              <div className="grid grid-cols-3 gap-2 rounded-xl border border-border bg-secondary/30 p-3 text-center col-span-2 sm:col-span-1">
+                <div className="rounded-lg bg-card p-2.5 border border-border/60">
+                  <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide block">
+                    Total
+                  </span>
+                  <p className="mt-1 text-sm font-bold text-foreground">
+                    <Taka value={pay.total} />
+                  </p>
+                </div>
+                <div className="rounded-lg bg-card p-2.5 border border-border/60">
+                  <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide block">
+                    Paid
+                  </span>
+                  <p className="mt-1 text-sm font-bold text-success">
+                    <Taka value={pay.paid} />
+                  </p>
+                </div>
+                <div className="rounded-lg bg-card p-2.5 border border-border/60">
+                  <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide block">
+                    Due
+                  </span>
+                  <p className={`mt-1 text-sm font-bold ${hasDue ? "text-destructive" : "text-success"}`}>
+                    <Taka value={pay.due} />
+                  </p>
+                </div>
               </div>
-              <div className="rounded-lg bg-card p-2.5 border border-border/60">
-                <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide block">
-                  Paid Amount
-                </span>
-                <p className="mt-1 text-base font-bold text-success">
-                  <Taka value={pay.paid} />
-                </p>
-              </div>
-              <div className="rounded-lg bg-card p-2.5 border border-border/60">
-                <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide block">
-                  Outstanding Due
-                </span>
-                <p className={`mt-1 text-base font-bold ${hasDue ? "text-destructive" : "text-success"}`}>
-                  <Taka value={pay.due} />
-                </p>
+
+              {/* Profit card */}
+              <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-3 col-span-2 sm:col-span-1">
+                <div className="flex items-center gap-1.5 mb-2.5 border-b border-emerald-500/20 pb-2">
+                  <TrendingUp className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">
+                    Profit Breakdown
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {/* Phone profit */}
+                  {phone && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground flex items-center gap-1">
+                        <Smartphone className="size-3 shrink-0" /> Phone Margin
+                      </span>
+                      <span className={`font-bold tabular-nums ${profitFromPhone >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
+                        <Taka value={profitFromPhone} />
+                      </span>
+                    </div>
+                  )}
+                  {/* Accessories profit */}
+                  {accessoryItems.length > 0 && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground flex items-center gap-1">
+                        <Gift className="size-3 shrink-0" /> Accessories Margin
+                      </span>
+                      <span className={`font-bold tabular-nums ${profitFromAccessories >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
+                        <Taka value={profitFromAccessories} />
+                      </span>
+                    </div>
+                  )}
+                  {/* Total profit */}
+                  <div className="flex items-center justify-between text-xs pt-1.5 border-t border-emerald-500/20 mt-1">
+                    <span className="font-semibold text-foreground">Total Profit</span>
+                    <span className={`font-extrabold text-sm tabular-nums ${(profitFromPhone + profitFromAccessories) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
+                      <Taka value={profitFromPhone + profitFromAccessories} />
+                    </span>
+                  </div>
+                  {!phone && accessoryItems.length === 0 && (
+                    <p className="text-xs text-muted-foreground text-center py-1">No cost data available</p>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -156,6 +254,17 @@ export function SaleDetailDialog({ transaction, onClose }: SaleDetailDialogProps
               />
             </div>
 
+            {/* Memo No. Banner */}
+            {tx.memo_no && (
+              <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5">
+                <Receipt className="size-4 text-amber-600 shrink-0" />
+                <span className="text-xs text-amber-800 dark:text-amber-300">
+                  <span className="font-semibold">Memo No.:</span>{" "}
+                  <span className="font-mono font-bold text-sm tracking-wide">{tx.memo_no}</span>
+                </span>
+              </div>
+            )}
+
             {/* Sold Phone Details */}
             {phone && (
               <div className="rounded-xl border border-border bg-card p-4 space-y-3">
@@ -168,7 +277,18 @@ export function SaleDetailDialog({ transaction, onClose }: SaleDetailDialogProps
                 <div className="grid gap-3 sm:grid-cols-2 text-xs">
                   <div>
                     <span className="text-muted-foreground block text-[11px]">Model</span>
-                    <p className="font-bold text-foreground text-sm">{phone.brand} {phone.model}</p>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="font-bold text-foreground text-sm">{phone.brand} {phone.model}</p>
+                      {phone.with_box ? (
+                        <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                          <Box className="size-2.5" /> With Box
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium bg-secondary text-muted-foreground border border-border">
+                          No Box
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div>
                     <span className="text-muted-foreground block text-[11px]">IMEI Number</span>
@@ -184,16 +304,52 @@ export function SaleDetailDialog({ transaction, onClose }: SaleDetailDialogProps
                   <div>
                     <span className="text-muted-foreground block text-[11px]">Condition & Battery</span>
                     <p className="font-medium text-foreground">
-                      {phone.condition} · Battery {phone.battery_health || "—"}
+                      {phone.condition} · Battery {formatBatteryHealth(phone.battery_health)}
                     </p>
                   </div>
+                  {/* Editable Purchase Cost */}
                   <div>
-                    <span className="text-muted-foreground block text-[11px]">Purchase Cost</span>
-                    <p className="font-medium text-foreground"><Taka value={phone.purchase_price} /></p>
+                    <span className="text-muted-foreground block text-[11px]">
+                      Purchase Cost
+                      <span className="ml-1 text-[10px] text-primary/70">(editable)</span>
+                    </span>
+                    {editingPhoneCost ? (
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <span className="text-muted-foreground text-xs">৳</span>
+                        <Input
+                          type="number"
+                          value={phoneCostDraft}
+                          onChange={(e) => setPhoneCostDraft(e.target.value)}
+                          className="h-6 px-1.5 py-0 text-xs w-28 rounded"
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") savePhoneCost();
+                            if (e.key === "Escape") cancelEditPhoneCost();
+                          }}
+                        />
+                        <button onClick={savePhoneCost} className="text-emerald-600 hover:text-emerald-700">
+                          <Check className="size-3.5" />
+                        </button>
+                        <button onClick={cancelEditPhoneCost} className="text-muted-foreground hover:text-destructive">
+                          <X className="size-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <p className="font-medium text-foreground"><Taka value={phone.purchase_price} /></p>
+                        <button
+                          onClick={startEditPhoneCost}
+                          className="text-muted-foreground/50 hover:text-primary transition-colors"
+                          title="Edit purchase cost"
+                        >
+                          <Pencil className="size-3" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <div>
                     <span className="text-muted-foreground block text-[11px]">Unit Sold Price</span>
-                    <p className="font-semibold text-emerald-600"><Taka value={phone.sold_price || tx.amount} /></p>
+                    <p className="font-semibold text-emerald-600"><Taka value={phone.sold_price ?? tx.amount} /></p>
                   </div>
                 </div>
               </div>
@@ -207,25 +363,73 @@ export function SaleDetailDialog({ transaction, onClose }: SaleDetailDialogProps
                 </p>
                 <div className="divide-y divide-border/60">
                   {tx.items.map((item, idx) => (
-                    <div key={idx} className="py-2 flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        {item.is_gift ? (
-                          <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary flex items-center gap-1">
-                            <Gift className="size-3" /> Free Gift
-                          </span>
-                        ) : null}
-                        <div>
-                          <p className="font-medium text-foreground">
-                            {item.quantity}x {item.name}
-                          </p>
-                          <p className="text-[11px] text-muted-foreground">
-                            Rate: <Taka value={item.unit_price} />
-                          </p>
+                    <div key={idx} className="py-2.5 text-xs">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {item.is_gift ? (
+                            <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary flex items-center gap-1">
+                              <Gift className="size-3" /> Free Gift
+                            </span>
+                          ) : null}
+                          <div>
+                            <p className="font-medium text-foreground">
+                              {item.quantity}x {item.name}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              Sale: <Taka value={item.unit_price} />
+                            </p>
+                          </div>
                         </div>
+                        <p className={`font-semibold ${item.is_gift ? "text-primary" : "text-foreground"}`}>
+                          {item.is_gift ? "৳0 (Free)" : <Taka value={item.subtotal} />}
+                        </p>
                       </div>
-                      <p className={`font-semibold ${item.is_gift ? "text-primary" : "text-foreground"}`}>
-                        {item.is_gift ? "৳0 (Free)" : <Taka value={item.subtotal} />}
-                      </p>
+                      {/* Editable cost price for accessory items */}
+                      {item.type === "accessory" && (
+                        <div className="mt-1.5 pl-0 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <span>Cost:</span>
+                          {editingItemIdx === idx ? (
+                            <div className="flex items-center gap-1">
+                              <span>৳</span>
+                              <Input
+                                type="number"
+                                value={itemCostDraft}
+                                onChange={(e) => setItemCostDraft(e.target.value)}
+                                className="h-5 px-1.5 py-0 text-xs w-24 rounded"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") saveItemCost(idx);
+                                  if (e.key === "Escape") cancelEditItemCost();
+                                }}
+                              />
+                              <button onClick={() => saveItemCost(idx)} className="text-emerald-600 hover:text-emerald-700">
+                                <Check className="size-3" />
+                              </button>
+                              <button onClick={cancelEditItemCost} className="text-muted-foreground hover:text-destructive">
+                                <X className="size-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <span className="font-medium text-foreground/80">৳{item.cost_price ?? 0}</span>
+                              {!item.is_gift && (
+                                <button
+                                  onClick={() => startEditItemCost(idx)}
+                                  className="text-muted-foreground/40 hover:text-primary transition-colors"
+                                  title="Edit cost price"
+                                >
+                                  <Pencil className="size-2.5" />
+                                </button>
+                              )}
+                              {!item.is_gift && (
+                                <span className={`ml-1 font-semibold ${(item.unit_price - (item.cost_price ?? 0)) >= 0 ? "text-emerald-600" : "text-destructive"}`}>
+                                  (profit: ৳{((item.unit_price - (item.cost_price ?? 0)) * item.quantity).toFixed(0)})
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -244,9 +448,16 @@ export function SaleDetailDialog({ transaction, onClose }: SaleDetailDialogProps
                 <div className="grid gap-3 sm:grid-cols-2 text-xs">
                   <div>
                     <span className="text-muted-foreground block text-[11px]">Incoming Device</span>
-                    <p className="font-bold text-foreground text-sm">
-                      {tx.trade_in.incoming_brand} {tx.trade_in.incoming_model}
-                    </p>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="font-bold text-foreground text-sm">
+                        {tx.trade_in.incoming_brand} {tx.trade_in.incoming_model}
+                      </p>
+                      {tradeInPhone?.with_box ? (
+                        <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                          <Box className="size-2.5" /> With Box
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                   <div>
                     <span className="text-muted-foreground block text-[11px]">Incoming IMEI</span>
@@ -360,16 +571,6 @@ export function SaleDetailDialog({ transaction, onClose }: SaleDetailDialogProps
                 <p className="mt-1 text-xs text-foreground bg-secondary/30 p-2.5 rounded-lg border border-border">
                   {tx.notes}
                 </p>
-              </div>
-            )}
-
-            {/* Bottom Margin Insight for Store Manager */}
-            {totalCost > 0 && (
-              <div className="flex items-center justify-between rounded-lg bg-secondary/40 px-3 py-2 text-xs border border-border/60 text-muted-foreground">
-                <span>Estimated Transaction Gross Margin:</span>
-                <span className={`font-semibold ${grossProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
-                  <Taka value={grossProfit} /> ({tx.amount > 0 ? Math.round((grossProfit / tx.amount) * 100) : 0}%)
-                </span>
               </div>
             )}
           </div>

@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef, type ChangeEvent } from "react";
 import { toast } from "sonner";
-import { ArrowLeftRight, Camera, Check, FileText, Plus, ShieldCheck, Smartphone, Trash2 } from "lucide-react";
+import { ArrowLeftRight, Box, Camera, Check, FileText, Plus, ShieldCheck, Smartphone, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Field } from "@/components/fmm/AddPhoneDialog";
-import { useFmm } from "@/lib/fmm-store";
-import { type PhoneCondition, type StoredFile } from "@/lib/fmm-types";
+import { normalizeBatteryHealth, useFmm } from "@/lib/fmm-store";
+import { type PhoneCondition, type StoredFile, PHONE_BRAND_OPTIONS, PHONE_RAM_OPTIONS, PHONE_ROM_OPTIONS } from "@/lib/fmm-types";
 import { Taka, TakaSign } from "./Taka";
 import { StatusBadge } from "./StatusBadge";
 import { processStoredFile, isImageDocument } from "@/lib/fmm-file";
@@ -54,15 +55,16 @@ export function ExchangePhoneDialog({
   }, []);
 
   // Step 2: Incoming trade-in phone from customer
-  const [inBrand, setInBrand] = useState("Samsung");
+  const [inBrand, setInBrand] = useState("Apple");
   const [inModel, setInModel] = useState("");
   const [inImei, setInImei] = useState("");
   const [inImeiSecondary, setInImeiSecondary] = useState("");
-  const [inRom, setInRom] = useState("");
-  const [inRam, setInRam] = useState("");
+  const [inRom, setInRom] = useState("128GB");
+  const [inRam, setInRam] = useState("8GB");
   const [inCondition, setInCondition] = useState<PhoneCondition>("Used - Good");
   const [inBatteryHealth, setInBatteryHealth] = useState("");
   const [inValuation, setInValuation] = useState("");
+  const [inWithBox, setInWithBox] = useState(false);
   const [damage, setDamage] = useState({
     screen_scratch: false,
     body_dent: false,
@@ -88,15 +90,16 @@ export function ExchangePhoneDialog({
     setOutgoingPrice("");
     setPhoneSearch("");
     setShowPhoneDropdown(false);
-    setInBrand("Samsung");
+    setInBrand("Apple");
     setInModel("");
     setInImei("");
     setInImeiSecondary("");
-    setInRom("");
-    setInRam("");
+    setInRom("128GB");
+    setInRam("8GB");
     setInCondition("Used - Good");
     setInBatteryHealth("");
     setInValuation("");
+    setInWithBox(false);
     setDamage({ screen_scratch: false, body_dent: false, battery_issue: false, camera_blurry: false });
     setConditionNotes("");
     setPhotos([]);
@@ -209,7 +212,7 @@ export function ExchangePhoneDialog({
       {
         imei: inImei.trim(),
         imei_secondary: inImeiSecondary.trim() || null,
-        battery_health: inBatteryHealth.trim() || null,
+        battery_health: normalizeBatteryHealth(inBatteryHealth),
         brand: inBrand.trim(),
         model: inModel.trim(),
         storage_ram: [inRom.trim(), inRam.trim()].filter(Boolean).join(" / ") || "N/A",
@@ -223,6 +226,7 @@ export function ExchangePhoneDialog({
         condition_notes: conditionNotes.trim() || `Trade-in exchange for ${selectedOutgoing!.brand} ${selectedOutgoing!.model}`,
         damage_checklist: damage,
         warranty_repair_notes: "",
+        with_box: inWithBox,
       },
       outgoingId,
       {
@@ -428,16 +432,40 @@ export function ExchangePhoneDialog({
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Brand *">
-                  <Input value={inBrand} onChange={(e) => setInBrand(e.target.value)} placeholder="e.g. Samsung, Apple, Google" />
+                  <select
+                    value={inBrand}
+                    onChange={(e) => setInBrand(e.target.value)}
+                    className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm font-medium"
+                  >
+                    {PHONE_BRAND_OPTIONS.map((b) => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                  </select>
                 </Field>
                 <Field label="Model *">
-                  <Input value={inModel} onChange={(e) => setInModel(e.target.value)} placeholder="e.g. Galaxy S23 Ultra, iPhone 14" />
+                  <Input value={inModel} onChange={(e) => setInModel(e.target.value)} placeholder="e.g. iPhone 14 Pro, Galaxy S23" />
                 </Field>
                 <Field label="ROM (Storage)">
-                  <Input value={inRom} onChange={(e) => setInRom(e.target.value)} placeholder="e.g. 128GB, 256GB" />
+                  <select
+                    value={inRom}
+                    onChange={(e) => setInRom(e.target.value)}
+                    className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm font-medium"
+                  >
+                    {PHONE_ROM_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
                 </Field>
                 <Field label="RAM">
-                  <Input value={inRam} onChange={(e) => setInRam(e.target.value)} placeholder="e.g. 6GB, 8GB" />
+                  <select
+                    value={inRam}
+                    onChange={(e) => setInRam(e.target.value)}
+                    className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm font-medium"
+                  >
+                    {PHONE_RAM_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
                 </Field>
                 <Field label="Condition">
                   <select
@@ -457,7 +485,15 @@ export function ExchangePhoneDialog({
                   <Input value={inImeiSecondary} onChange={(e) => setInImeiSecondary(e.target.value)} placeholder="Optional 2nd IMEI" className="font-mono text-xs" />
                 </Field>
                 <Field label="Battery Health (optional)">
-                  <Input value={inBatteryHealth} onChange={(e) => setInBatteryHealth(e.target.value)} placeholder="e.g. 89%" />
+                  <Input
+                    value={inBatteryHealth}
+                    onChange={(e) => setInBatteryHealth(e.target.value)}
+                    onBlur={() => {
+                      const v = normalizeBatteryHealth(inBatteryHealth);
+                      if (v) setInBatteryHealth(v);
+                    }}
+                    placeholder="e.g. 85%"
+                  />
                 </Field>
                 <Field label={<>Their Phone Valued At (<TakaSign />) *</>}>
                   <Input
@@ -470,6 +506,32 @@ export function ExchangePhoneDialog({
                     className="font-bold text-success text-base"
                   />
                 </Field>
+                <div className="sm:col-span-2">
+                  <div
+                    onClick={() => setInWithBox((b) => !b)}
+                    className={`flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-colors select-none ${
+                      inWithBox
+                        ? "border-emerald-500/40 bg-emerald-500/10 text-foreground"
+                        : "border-border/80 bg-secondary/30 hover:bg-secondary/60 text-muted-foreground"
+                    }`}
+                  >
+                    <Checkbox
+                      id="exchange-with-box"
+                      checked={inWithBox}
+                      onCheckedChange={(checked) => setInWithBox(Boolean(checked))}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                    <div className="flex items-center gap-2">
+                      <Box className={`size-4 ${inWithBox ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`} />
+                      <label htmlFor="exchange-with-box" className="text-sm font-semibold cursor-pointer text-foreground">
+                        With Box
+                      </label>
+                      <span className="text-xs">
+                        {inWithBox ? "(Customer provided original/matching device box)" : "(Phone only, no box)"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
                 <div className="sm:col-span-2">
                   <Field label="Trade-in Phone Photos">
                     <input

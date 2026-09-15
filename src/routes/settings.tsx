@@ -46,7 +46,7 @@ export const Route = createFileRoute("/settings")({
 });
 
 function SettingsPage() {
-  const { state, updateSettings, runBackup, restoreBackup, resetData, loadDemoData } = useFmm();
+  const { state, updateSettings, runBackup, restoreBackup, resetData } = useFmm();
   const fileRef = useRef<HTMLInputElement>(null);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [status, setStatus] = useState<{ ok: boolean; message: string; verified?: boolean; timestamp?: string } | null>(null);
@@ -487,9 +487,9 @@ function SettingsPage() {
             <ShieldAlert className="size-5 text-destructive" /> Danger Zone
           </h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Clear all sample/mock data to start with a fresh clean database (zero records), or reload the sample dataset.
+            Permanently clear all inventory, sales, expenses, and records to reset to a completely clean database (0 records).
           </p>
-          <div className="mt-4 flex flex-wrap gap-3">
+          <div className="mt-4">
             <Button
               variant="destructive"
               className="rounded-xl"
@@ -501,18 +501,6 @@ function SettingsPage() {
               }}
             >
               Clear All Data & Fresh Start (0 Records)
-            </Button>
-            <Button
-              variant="outline"
-              className="rounded-xl"
-              onClick={() => {
-                if (window.confirm("Load the sample/demo dataset with test phones, accessories, and transactions?")) {
-                  loadDemoData();
-                  toast.success("Sample demo dataset loaded.");
-                }
-              }}
-            >
-              Load Demo Dataset
             </Button>
           </div>
         </section>

@@ -6,12 +6,11 @@ import {
   Edit2,
   History,
   Layers,
-  Package,
+  TrendingUp,
   Plus,
   Scale,
   Search,
   ShoppingCart,
-  TrendingUp,
 } from "lucide-react";
 import { useState, useMemo } from "react";
 import { AppShell, PageHeader } from "@/components/fmm/AppShell";
@@ -131,13 +130,18 @@ function AccessoriesPage() {
 
           <div className="rounded-xl border border-border bg-card p-5">
             <div className="flex items-start justify-between">
-              <span className="text-xs font-semibold tracking-wide text-muted-foreground">STOCK VALUATION</span>
+              <span className="text-xs font-semibold tracking-wide text-muted-foreground">
+                SALES REVENUE {new Date().toLocaleString("default", { month: "long" }).toUpperCase()} {new Date().getFullYear()}
+              </span>
               <span className="rounded-lg p-2 bg-secondary text-foreground">
-                <Package className="size-4" />
+                <TrendingUp className="size-4" />
               </span>
             </div>
-            <p className="mt-4 text-3xl font-bold"><Taka value={metrics.totalValue} /></p>
-            <p className="mt-2 text-xs text-muted-foreground">At unit purchase cost</p>
+            <p className="mt-4 text-3xl font-bold"><Taka value={metrics.monthRevenue} /></p>
+            <p className="mt-2 flex items-center gap-1 text-xs text-success">
+              <ShoppingCart className="size-3.5" />
+              {metrics.monthOrderCount} orders this month
+            </p>
           </div>
 
           <div className="rounded-xl border border-border bg-card p-5">

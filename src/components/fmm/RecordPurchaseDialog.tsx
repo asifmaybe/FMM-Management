@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { Layers, Plus, ShoppingCart, Smartphone, Trash2 } from "lucide-react";
+import { Box, Layers, Plus, ShoppingCart, Smartphone, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useFmm } from "@/lib/fmm-store";
-import { type Phone, type PhoneCondition, type PurchaseItem } from "@/lib/fmm-types";
+import { type Phone, type PhoneCondition, type PurchaseItem, PHONE_BRAND_OPTIONS, PHONE_RAM_OPTIONS, PHONE_ROM_OPTIONS } from "@/lib/fmm-types";
 import { Taka, TakaSign } from "./Taka";
 
 interface PhoneInputRow {
@@ -18,6 +19,7 @@ interface PhoneInputRow {
   imei: string;
   purchase_price: string;
   selling_price: string;
+  with_box?: boolean;
 }
 
 const CONDITIONS: PhoneCondition[] = ["New", "Used - A", "Used - B", "Used - Good", "Refurbished"];
@@ -46,7 +48,7 @@ export function RecordPurchaseDialog({
 
   // Phone rows
   const [phoneRows, setPhoneRows] = useState<PhoneInputRow[]>([
-    { brand: "Apple", model: "iPhone 15", rom: "128GB", ram: "8GB", condition: "New", imei: "", purchase_price: "75000", selling_price: "85000" },
+    { brand: "Apple", model: "iPhone 15", rom: "128GB", ram: "8GB", condition: "New", imei: "", purchase_price: "75000", selling_price: "85000", with_box: false },
   ]);
 
   const handleAddAccItem = () => {
@@ -74,7 +76,7 @@ export function RecordPurchaseDialog({
   const handleAddPhoneRow = () => {
     setPhoneRows((prev) => [
       ...prev,
-      { brand: "Apple", model: "iPhone 15", rom: "128GB", ram: "8GB", condition: "New", imei: "", purchase_price: "75000", selling_price: "85000" },
+      { brand: "Apple", model: "iPhone 15", rom: "128GB", ram: "8GB", condition: "New", imei: "", purchase_price: "75000", selling_price: "85000", with_box: false },
     ]);
   };
 
@@ -82,7 +84,7 @@ export function RecordPurchaseDialog({
     setPhoneRows((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  const handlePhoneRowChange = (idx: number, field: keyof PhoneInputRow, value: string) => {
+  const handlePhoneRowChange = (idx: number, field: keyof PhoneInputRow, value: string | boolean) => {
     setPhoneRows((prev) =>
       prev.map((row, i) => (i === idx ? { ...row, [field]: value } : row)),
     );
@@ -173,6 +175,7 @@ export function RecordPurchaseDialog({
           battery_issue: false,
           camera_blurry: false,
         },
+        with_box: r.with_box ?? false,
       }));
 
       // Single-owner procurement: addPhonesBatch creates phone inventory AND the single authoritative Purchase record
@@ -350,7 +353,19 @@ export function RecordPurchaseDialog({
                   {phoneRows.map((row, idx) => (
                     <div key={idx} className="bg-secondary/40 p-3 rounded-lg text-xs space-y-2 border border-border/50">
                       <div className="flex items-center justify-between">
-                        <span className="font-semibold text-muted-foreground">Device #{idx + 1}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="font-semibold text-muted-foreground">Device #{idx + 1}</span>
+                          <label className="flex items-center gap-1.5 cursor-pointer text-xs font-medium text-foreground select-none">
+                            <Checkbox
+                              checked={Boolean(row.with_box)}
+                              onCheckedChange={(c) => handlePhoneRowChange(idx, "with_box", Boolean(c))}
+                            />
+                            <Box className={`size-3.5 ${row.with_box ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`} />
+                            <span className={row.with_box ? "text-emerald-600 dark:text-emerald-400 font-semibold" : ""}>
+                              With Box
+                            </span>
+                          </label>
+                        </div>
                         {phoneRows.length > 1 ? (
                           <button
                             type="button"
@@ -364,12 +379,15 @@ export function RecordPurchaseDialog({
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         <div>
                           <Label className="text-[10px] text-muted-foreground">Brand</Label>
-                          <Input
+                          <select
                             value={row.brand}
                             onChange={(e) => handlePhoneRowChange(idx, "brand", e.target.value)}
-                            placeholder="Apple, Samsung…"
-                            className="h-7 text-xs mt-0.5"
-                          />
+                            className="h-7 w-full rounded-md border border-input bg-card px-2 text-xs font-medium mt-0.5"
+                          >
+                            {PHONE_BRAND_OPTIONS.map((b) => (
+                              <option key={b} value={b}>{b}</option>
+                            ))}
+                          </select>
                         </div>
                         <div>
                           <Label className="text-[10px] text-muted-foreground">Model</Label>
@@ -405,21 +423,27 @@ export function RecordPurchaseDialog({
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         <div>
                           <Label className="text-[10px] text-muted-foreground">ROM (Storage)</Label>
-                          <Input
+                          <select
                             value={row.rom}
                             onChange={(e) => handlePhoneRowChange(idx, "rom", e.target.value)}
-                            placeholder="128GB"
-                            className="h-7 text-xs mt-0.5"
-                          />
+                            className="h-7 w-full rounded-md border border-input bg-card px-2 text-xs font-medium mt-0.5"
+                          >
+                            {PHONE_ROM_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
                         </div>
                         <div>
                           <Label className="text-[10px] text-muted-foreground">RAM</Label>
-                          <Input
+                          <select
                             value={row.ram}
                             onChange={(e) => handlePhoneRowChange(idx, "ram", e.target.value)}
-                            placeholder="8GB"
-                            className="h-7 text-xs mt-0.5"
-                          />
+                            className="h-7 w-full rounded-md border border-input bg-card px-2 text-xs font-medium mt-0.5"
+                          >
+                            {PHONE_RAM_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
                         </div>
                         <div>
                           <Label className="text-[10px] text-muted-foreground">Purchase Cost (<TakaSign />)</Label>

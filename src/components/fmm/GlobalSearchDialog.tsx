@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeftRight,
+  Box,
   Calendar,
   Layers,
   Megaphone,
@@ -81,7 +82,8 @@ export function GlobalSearchDialog({
       (t) =>
         t.customer_name.toLowerCase().includes(q) ||
         t.customer_phone.toLowerCase().includes(q) ||
-        t.id.toLowerCase().includes(q),
+        t.id.toLowerCase().includes(q) ||
+        (t.memo_no && t.memo_no.toLowerCase().includes(q)),
     );
 
     const purchases = (state.purchases ?? []).filter((p) => {
@@ -195,8 +197,13 @@ export function GlobalSearchDialog({
                         onClick={() => handleSelect("/stock")}
                         className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-secondary text-left transition-colors text-sm"
                       >
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold">{p.brand} {p.model}</span>
+                          {p.with_box ? (
+                            <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.2 text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                              <Box className="size-2.5" /> Box
+                            </span>
+                          ) : null}
                           <span className="font-mono text-xs text-muted-foreground">IMEI: {p.imei}</span>
                         </div>
                         <div className="flex items-center gap-2">

@@ -1,18 +1,20 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { ShoppingBag, ShieldCheck, Receipt } from "lucide-react";
+import { Box, ShoppingBag, ShieldCheck, Receipt, Pencil } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { StatusBadge } from "@/components/fmm/StatusBadge";
 import { Button } from "@/components/ui/button";
-import { daysInStock, supplierName, useFmm } from "@/lib/fmm-store";
+import { daysInStock, formatBatteryHealth, supplierName, useFmm } from "@/lib/fmm-store";
 import { Taka, TakaSign } from "@/components/fmm/Taka";
 import { SellPhoneDialog } from "@/components/fmm/SellPhoneDialog";
 import { InspectTradeInDialog } from "@/components/fmm/InspectTradeInDialog";
+import { EditPhoneDialog } from "@/components/fmm/EditPhoneDialog";
 
 export function PhoneDetailDialog({ phoneId, onClose }: { phoneId: string | null; onClose: () => void }) {
   const { state } = useFmm();
   const [sellOpen, setSellOpen] = useState(false);
   const [inspectOpen, setInspectOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const phone = state.phones.find((p) => p.id === phoneId) ?? null;
   const txs = state.transactions.filter((t) => t.phone_id === phoneId);
   const purchase = state.customer_purchases.find((c) => c.id === phone?.customer_purchase_id);
@@ -39,9 +41,18 @@ export function PhoneDetailDialog({ phoneId, onClose }: { phoneId: string | null
           {phone ? (
             <>
               <DialogHeader>
-                <DialogTitle className="flex items-center gap-3">
-                  {phone.brand} {phone.model}
+                <DialogTitle className="flex items-center gap-2.5 flex-wrap">
+                  <span>{phone.brand} {phone.model}</span>
                   <StatusBadge status={phone.status} />
+                  {phone.with_box ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                      <Box className="size-3" /> With Box
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary/50 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                      No Box
+                    </span>
+                  )}
                 </DialogTitle>
               </DialogHeader>
 
@@ -54,9 +65,21 @@ export function PhoneDetailDialog({ phoneId, onClose }: { phoneId: string | null
                     </div>
                   ) : null}
                 </div>
-                {!/apple|iphone/i.test(phone.brand) ? <Info label="Specs" value={phone.storage_ram || "—"} /> : null}
-                <Info label="Battery Health" value={phone.battery_health || "—"} />
+                <Info label="Specs (Storage / RAM)" value={phone.storage_ram || "—"} />
+                <Info label="Battery Health" value={formatBatteryHealth(phone.battery_health)} />
                 <Info label="Condition" value={phone.condition} />
+                <Info
+                  label="Packaging / Box"
+                  value={
+                    phone.with_box ? (
+                      <span className="inline-flex items-center gap-1.5 font-semibold text-emerald-600 dark:text-emerald-400">
+                        <Box className="size-3.5" /> With Box (Included)
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">No Box (Device only)</span>
+                    )
+                  }
+                />
                 <Info label="Source" value={`${phone.source_type} · ${supplierName(state, phone)}`} />
                 <Info label="Purchase Price" value={<Taka value={phone.purchase_price} />} />
                 <Info label="Selling Price" value={phone.selling_price ? <Taka value={phone.selling_price} /> : "—"} />
@@ -163,6 +186,15 @@ export function PhoneDetailDialog({ phoneId, onClose }: { phoneId: string | null
                   Status: <span className="font-medium text-foreground">{phone.status}</span>
                 </div>
                 <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl gap-1.5 text-xs font-medium hover:bg-secondary"
+                    onClick={() => setEditOpen(true)}
+                  >
+                    <Pencil className="size-3.5" />
+                    Edit Details
+                  </Button>
                   {phone.status === "In Inspection" && (
                     <Button
                       className="rounded-xl bg-purple-600 hover:bg-purple-700 text-white gap-1.5 shadow-sm"
@@ -221,6 +253,14 @@ export function PhoneDetailDialog({ phoneId, onClose }: { phoneId: string | null
         phone={phone}
         open={inspectOpen}
         onOpenChange={setInspectOpen}
+      />
+
+      {/* Edit Phone Popup */}
+      <EditPhoneDialog
+        phone={phone}
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        onDeleted={onClose}
       />
     </>
   );

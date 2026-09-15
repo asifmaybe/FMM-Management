@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowDownRight,
   ArrowUpRight,
+  Box,
   Calendar,
   CalendarDays,
   CheckCircle2,
@@ -880,24 +881,33 @@ function ReportsPage() {
                   </p>
                 ) : (
                   <div className="overflow-x-auto max-h-72">
-                    <table className="w-full text-xs">
+                    <table className="w-full min-w-[650px] text-xs">
                       <thead className="border-b border-border bg-secondary/30 text-left text-muted-foreground">
                         <tr>
-                          <th className="px-4 py-2.5 font-medium">Device / Model</th>
-                          <th className="px-4 py-2.5 font-medium">IMEI</th>
-                          <th className="px-4 py-2.5 font-medium">Specs</th>
-                          <th className="px-4 py-2.5 text-right font-medium">Cost</th>
-                          <th className="px-4 py-2.5 text-right font-medium">Action</th>
+                          <th className="px-4 py-2.5 font-medium min-w-[240px]">Device / Model</th>
+                          <th className="px-4 py-2.5 font-medium whitespace-nowrap">IMEI</th>
+                          <th className="px-4 py-2.5 font-medium whitespace-nowrap">Specs</th>
+                          <th className="px-4 py-2.5 text-right font-medium whitespace-nowrap">Cost</th>
+                          <th className="px-4 py-2.5 text-right font-medium whitespace-nowrap">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/60">
                         {aging[selectedAgingBucket].map((p) => (
                           <tr key={p.id} className="hover:bg-secondary/40 transition-colors">
-                            <td className="px-4 py-2.5 font-semibold text-foreground">{p.brand} {p.model}</td>
-                            <td className="px-4 py-2.5 font-mono text-muted-foreground">{p.imei}</td>
-                            <td className="px-4 py-2.5 text-muted-foreground">{p.storage_ram} · {p.condition}</td>
-                            <td className="px-4 py-2.5 text-right font-medium"><Taka value={p.purchase_price} /></td>
-                            <td className="px-4 py-2.5 text-right">
+                            <td className="px-4 py-2.5 font-semibold text-foreground min-w-[240px] leading-snug">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span>{p.brand} {p.model}</span>
+                                {p.with_box ? (
+                                  <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" title="Includes original box">
+                                    <Box className="size-2.5" /> Box
+                                  </span>
+                                ) : null}
+                              </div>
+                            </td>
+                            <td className="px-4 py-2.5 font-mono text-muted-foreground whitespace-nowrap">{p.imei}</td>
+                            <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap">{p.storage_ram} · {p.condition}</td>
+                            <td className="px-4 py-2.5 text-right font-medium whitespace-nowrap"><Taka value={p.purchase_price} /></td>
+                            <td className="px-4 py-2.5 text-right whitespace-nowrap">
                               <Link to="/stock" search={{ q: p.imei }} className="inline-flex items-center gap-1 font-semibold text-primary hover:underline">
                                 Stock Details <ArrowUpRight className="size-3" />
                               </Link>

@@ -28,6 +28,22 @@ fs.mkdirSync(userDataDir, { recursive: true });
 fs.mkdirSync(documentsDir, { recursive: true });
 fs.mkdirSync(backupsDir, { recursive: true });
 
+// Setup persistent logging to app.log for diagnosing any issues
+const logFile = path.join(userDataDir, "app.log");
+const logStream = fs.createWriteStream(logFile, { flags: "a" });
+const originalLog = console.log;
+const originalError = console.error;
+console.log = (...args) => {
+  const line = `[${new Date().toISOString()}] [INFO] ${args.map(a => typeof a === "object" ? JSON.stringify(a) : a).join(" ")}\n`;
+  logStream.write(line);
+  originalLog(...args);
+};
+console.error = (...args) => {
+  const line = `[${new Date().toISOString()}] [ERROR] ${args.map(a => typeof a === "object" ? (a?.stack || JSON.stringify(a)) : a).join(" ")}\n`;
+  logStream.write(line);
+  originalError(...args);
+};
+
 // 2. Initialize sql.js SQLite Database (fmm.db)
 // sql.js is a pure WASM port of SQLite — no Python/node-gyp required.
 const dbPath = path.join(userDataDir, "fmm.db");
@@ -179,6 +195,21 @@ function getAvailablePort() {
   });
 }
 
+// Poll the server URL until it responds (or timeout).
+async function waitForServer(serverUrl, maxAttempts = 30, intervalMs = 500) {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      await fetch(serverUrl);
+      console.log(`[FMM Main] Server ready after ${i + 1} attempt(s).`);
+      return true;
+    } catch (_) {
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+  }
+  console.warn("[FMM Main] Server did not become ready in time — loading anyway.");
+  return false;
+}
+
 async function startLocalServer() {
   const port = await getAvailablePort();
   process.env.PORT = String(port);
@@ -190,7 +221,10 @@ async function startLocalServer() {
   if (fs.existsSync(serverEntry)) {
     console.log(`[FMM Main] Starting local server on port ${port} from ${serverEntry}...`);
     await import(url.pathToFileURL(serverEntry).href);
-    return `http://127.0.0.1:${port}`;
+    const serverUrl = `http://127.0.0.1:${port}`;
+    // Wait until the HTTP server is actually accepting connections before loading the window.
+    await waitForServer(serverUrl);
+    return serverUrl;
   }
   return "http://localhost:8080";
 }
@@ -221,6 +255,21 @@ async function createWindow() {
       console.error("[FMM Main] Failed to start local server, falling back to 8080:", err);
     }
   }
+
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (input.key === "F12" || (input.control && input.shift && input.key.toLowerCase() === "i")) {
+      mainWindow.webContents.toggleDevTools();
+      event.preventDefault();
+    }
+  });
+
+  mainWindow.webContents.on("did-fail-load", (event, errorCode, errorDescription, validatedURL) => {
+    console.error(`[FMM Main] WebContents failed to load ${validatedURL}: ${errorCode} (${errorDescription})`);
+  });
+
+  mainWindow.webContents.on("render-process-gone", (event, details) => {
+    console.error(`[FMM Main] Renderer process gone: reason=${details.reason}, exitCode=${details.exitCode}`);
+  });
 
   console.log(`[FMM Main] Loading window URL: ${targetUrl}`);
   mainWindow.loadURL(targetUrl);

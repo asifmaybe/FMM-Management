@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { Megaphone, Package, Plus, ShoppingBag, Trash2 } from "lucide-react";
+import { Check, Layers, Megaphone, Package, Plus, Search, ShoppingBag, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -38,13 +38,15 @@ export function SellPhoneDialog({
 
   const [campaignId, setCampaignId] = useState("");
   const [bundledAccessories, setBundledAccessories] = useState<BundledAccessory[]>([]);
-  const [addingAcc, setAddingAcc] = useState(false);
-  const [pickedAccId, setPickedAccId] = useState("");
-  const [pickedQty, setPickedQty] = useState("1");
-  const [pickedPrice, setPickedPrice] = useState("");
-  const [isGift, setIsGift] = useState(false);
+  const [isBatchPickerOpen, setIsBatchPickerOpen] = useState(false);
+  const [batchSearch, setBatchSearch] = useState("");
+  const [batchCategory, setBatchCategory] = useState("All");
+  const [batchItems, setBatchItems] = useState<
+    Record<string, { selected: boolean; quantity: number; unit_price: number; is_gift: boolean }>
+  >({});
   const [paidAmountInput, setPaidAmountInput] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("Cash");
+  const [memoNo, setMemoNo] = useState("");
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const activeCampaigns = (state.campaigns ?? []).filter(
@@ -64,13 +66,13 @@ export function SellPhoneDialog({
       });
       setPaidAmountInput(defaultSold);
       setPaymentMethod("Cash");
+      setMemoNo("");
       setCampaignId(phone.campaign_id || "");
       setBundledAccessories([]);
-      setAddingAcc(false);
-      setPickedAccId("");
-      setPickedQty("1");
-      setPickedPrice("");
-      setIsGift(false);
+      setIsBatchPickerOpen(false);
+      setBatchItems({});
+      setBatchSearch("");
+      setBatchCategory("All");
     }
   }, [phone, open]);
 
@@ -89,50 +91,156 @@ export function SellPhoneDialog({
   // Accessories in stock (quantity > 0)
   const availableAccessories = state.accessories.filter((a) => a.status === "Active" && a.quantity > 0);
 
-  // When acc changes, pre-fill with its selling price
-  const handlePickAcc = (id: string) => {
-    setPickedAccId(id);
-    const acc = state.accessories.find((a) => a.id === id);
-    if (acc) setPickedPrice(isGift ? "0" : String(acc.selling_price));
+  const distinctCategories = Array.from(
+    new Set(availableAccessories.map((a) => a.category).filter(Boolean)),
+  );
+
+  const openBatchPicker = () => {
+    const initial: Record<string, { selected: boolean; quantity: number; unit_price: number; is_gift: boolean }> = {};
+    for (const acc of availableAccessories) {
+      const existing = bundledAccessories.find((b) => b.accessory_id === acc.id);
+      if (existing) {
+        initial[acc.id] = {
+          selected: true,
+          quantity: existing.quantity,
+          unit_price: existing.unit_price,
+          is_gift: Boolean(existing.is_gift),
+        };
+      } else {
+        initial[acc.id] = {
+          selected: false,
+          quantity: 1,
+          unit_price: acc.selling_price,
+          is_gift: false,
+        };
+      }
+    }
+    setBatchItems(initial);
+    setBatchSearch("");
+    setBatchCategory("All");
+    setIsBatchPickerOpen(true);
   };
 
-  const addBundledAcc = () => {
-    if (!pickedAccId) { toast.error("Select an accessory."); return; }
-    const acc = state.accessories.find((a) => a.id === pickedAccId);
-    if (!acc) return;
-    const qty = Math.max(1, Number(pickedQty) || 1);
-    const price = isGift ? 0 : Number(pickedPrice);
-    if (!isGift && (!price || price < 0)) { toast.error("Enter a valid price."); return; }
+  const toggleBatchItem = (accId: string) => {
+    setBatchItems((prev) => {
+      const cur = prev[accId];
+      if (!cur) return prev;
+      return {
+        ...prev,
+        [accId]: { ...cur, selected: !cur.selected },
+      };
+    });
+  };
 
-    // Check available stock (subtract what's already bundled)
-    const alreadyBundled = bundledAccessories
-      .filter((b) => b.accessory_id === pickedAccId)
-      .reduce((s, b) => s + b.quantity, 0);
-    if (qty + alreadyBundled > acc.quantity) {
-      toast.error(`Only ${acc.quantity - alreadyBundled} unit(s) of "${acc.name}" available in stock.`);
+  const updateBatchItem = (
+    accId: string,
+    patch: Partial<{ quantity: number; unit_price: number; is_gift: boolean }>,
+  ) => {
+    setBatchItems((prev) => {
+      const cur = prev[accId];
+      if (!cur) return prev;
+      const updated = { ...cur, ...patch };
+      if (patch.is_gift !== undefined) {
+        if (patch.is_gift) {
+          updated.unit_price = 0;
+        } else {
+          const acc = state.accessories.find((a) => a.id === accId);
+          if (acc && updated.unit_price === 0) {
+            updated.unit_price = acc.selling_price;
+          }
+        }
+      }
+      return {
+        ...prev,
+        [accId]: updated,
+      };
+    });
+  };
+
+  const applyBatchSelection = () => {
+    const selectedList = Object.entries(batchItems).filter(([, item]) => item.selected);
+    if (selectedList.length === 0) {
+      toast.error("Please select at least one accessory.");
       return;
     }
 
-    setBundledAccessories((prev) => {
-      const existingIndex = prev.findIndex((b) => b.accessory_id === pickedAccId && Boolean(b.is_gift) === isGift);
-      if (existingIndex >= 0) {
-        return prev.map((b, i) =>
-          i === existingIndex ? { ...b, quantity: b.quantity + qty, unit_price: price } : b,
-        );
+    // Validate stock
+    for (const [accId, item] of selectedList) {
+      const acc = state.accessories.find((a) => a.id === accId);
+      if (!acc) continue;
+      const qty = Math.max(1, Number(item.quantity) || 1);
+      if (qty > acc.quantity) {
+        toast.error(`"${acc.name}" only has ${acc.quantity} unit(s) in stock.`);
+        return;
       }
-      return [...prev, { accessory_id: pickedAccId, quantity: qty, unit_price: price, is_gift: isGift }];
+    }
+
+    const newBundled: BundledAccessory[] = selectedList.map(([accId, item]) => {
+      const qty = Math.max(1, Number(item.quantity) || 1);
+      const price = item.is_gift ? 0 : Math.max(0, Number(item.unit_price) || 0);
+      return {
+        accessory_id: accId,
+        quantity: qty,
+        unit_price: price,
+        is_gift: item.is_gift,
+      };
     });
-    setAddingAcc(false);
-    setPickedAccId("");
-    setPickedQty("1");
-    setPickedPrice("");
-    setIsGift(false);
+
+    setBundledAccessories(newBundled);
+    setIsBatchPickerOpen(false);
+    toast.success(`Bundled ${newBundled.length} accessories with this sale.`);
   };
 
-  const removeAcc = (accId: string, giftFlag?: boolean) =>
+  const handleAddBlankRow = () => {
+    const unused =
+      availableAccessories.find((a) => !bundledAccessories.some((b) => b.accessory_id === a.id)) ||
+      availableAccessories[0];
+
+    if (!unused) {
+      toast.error("No accessories available in stock.");
+      return;
+    }
+
+    setBundledAccessories((prev) => [
+      ...prev,
+      {
+        accessory_id: unused.id,
+        quantity: 1,
+        unit_price: unused.selling_price,
+        is_gift: false,
+      },
+    ]);
+  };
+
+  const updateBundledAcc = (index: number, patch: Partial<BundledAccessory>) => {
     setBundledAccessories((prev) =>
-      prev.filter((b) => !(b.accessory_id === accId && Boolean(b.is_gift) === Boolean(giftFlag))),
+      prev.map((b, i) => {
+        if (i !== index) return b;
+        const updated = { ...b, ...patch };
+        if (patch.accessory_id && patch.accessory_id !== b.accessory_id) {
+          const acc = state.accessories.find((a) => a.id === patch.accessory_id);
+          if (acc) {
+            updated.unit_price = updated.is_gift ? 0 : acc.selling_price;
+          }
+        }
+        if (patch.is_gift !== undefined) {
+          if (patch.is_gift) {
+            updated.unit_price = 0;
+          } else {
+            const acc = state.accessories.find((a) => a.id === updated.accessory_id);
+            if (acc && updated.unit_price === 0) {
+              updated.unit_price = acc.selling_price;
+            }
+          }
+        }
+        return updated;
+      }),
     );
+  };
+
+  const removeBundledAcc = (index: number) => {
+    setBundledAccessories((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const phonePrice = Number(form.sold_price) || 0;
   const accTotal = bundledAccessories.reduce(
@@ -153,6 +261,19 @@ export function SellPhoneDialog({
     if (!form.sold_price || isNaN(Number(form.sold_price)) || Number(form.sold_price) <= 0) {
       toast.error("Please enter a valid sold price.");
       return;
+    }
+
+    // Validate bundled accessories stock
+    for (const b of bundledAccessories) {
+      const acc = state.accessories.find((a) => a.id === b.accessory_id);
+      if (!acc) continue;
+      const totalBundledQty = bundledAccessories
+        .filter((item) => item.accessory_id === b.accessory_id)
+        .reduce((sum, item) => sum + item.quantity, 0);
+      if (totalBundledQty > acc.quantity) {
+        toast.error(`Only ${acc.quantity} unit(s) of "${acc.name}" available in stock.`);
+        return;
+      }
     }
 
     // Auto-resolve or register customer profile
@@ -188,6 +309,7 @@ export function SellPhoneDialog({
       paid_amount: livePaid,
       due_amount: liveDue,
       campaign_id: campaignId || null,
+      memo_no: memoNo.trim() || null,
       notes: form.notes.trim(),
       ...(bundledAccessories.length > 0 ? { accessories: bundledAccessories } : {}),
     });
@@ -426,146 +548,513 @@ export function SellPhoneDialog({
           </div>
 
           {/* ── Bundled Accessories & Free Gifts ── */}
-          <div className="rounded-xl border border-border bg-secondary/30 p-3">
-            <div className="mb-2 flex items-center justify-between">
+          <div className="rounded-xl border border-border bg-secondary/30 p-3 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-1.5 text-xs font-semibold">
-                <Package className="size-3.5 text-muted-foreground" />
+                <Package className="size-3.5 text-primary" />
                 Bundled Accessories & Free Gifts
                 <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground font-normal">Optional</span>
+                {bundledAccessories.length > 0 && (
+                  <span className="rounded-full bg-primary/15 text-primary px-2 py-0.5 text-[10px] font-bold">
+                    {bundledAccessories.length} item{bundledAccessories.length > 1 ? "s" : ""}
+                  </span>
+                )}
               </div>
-              {!addingAcc && (
-                <button
-                  type="button"
-                  onClick={() => setAddingAcc(true)}
-                  className="flex items-center gap-1 rounded-lg bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary hover:bg-primary/20 transition-colors"
-                >
-                  <Plus className="size-3" /> Add Item / Gift
-                </button>
+
+              {!isBatchPickerOpen && (
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={openBatchPicker}
+                    className="h-7 px-2.5 text-xs rounded-lg gap-1 bg-primary text-primary-foreground font-semibold shadow-xs hover:bg-primary/90"
+                    title="Select multiple accessories at once with checkboxes"
+                  >
+                    <Layers className="size-3.5" /> Select Multiple
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAddBlankRow}
+                    className="h-7 px-2.5 text-xs rounded-lg gap-1 bg-card hover:bg-secondary font-medium"
+                    title="Add an individual accessory row inline"
+                  >
+                    <Plus className="size-3" /> Add Row
+                  </Button>
+                </div>
               )}
             </div>
 
-            {/* Existing bundled rows */}
-            {bundledAccessories.length > 0 && (
-              <div className="mb-2 space-y-1.5">
-                {bundledAccessories.map((b) => {
+            {/* ── BATCH SELECTION CATALOG VIEW ── */}
+            {isBatchPickerOpen && (
+              <div className="rounded-xl border border-primary/30 bg-card p-3.5 space-y-3 shadow-xs">
+                <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                  <div className="flex items-center gap-2">
+                    <span className="flex size-6 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <Layers className="size-3.5" />
+                    </span>
+                    <div>
+                      <h4 className="text-xs font-bold text-foreground leading-none">Select Multiple Accessories</h4>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        Check all items to bundle with this sale. Toggle gifts or adjust prices directly.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsBatchPickerOpen(false)}
+                    className="size-6 rounded-md hover:bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+
+                {/* Search and Category Filters */}
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
+                    <Input
+                      type="text"
+                      placeholder="Search accessories (e.g. charger, case, glass)..."
+                      value={batchSearch}
+                      onChange={(e) => setBatchSearch(e.target.value)}
+                      className="pl-8 pr-7 h-8 text-xs rounded-lg"
+                    />
+                    {batchSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setBatchSearch("")}
+                        className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {distinctCategories.length > 1 && (
+                    <div className="flex items-center gap-1 overflow-x-auto pb-1 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => setBatchCategory("All")}
+                        className={`px-2.5 py-0.5 rounded-full font-medium transition-colors shrink-0 ${
+                          batchCategory === "All"
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-secondary text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        All ({availableAccessories.length})
+                      </button>
+                      {distinctCategories.map((cat) => {
+                        const count = availableAccessories.filter((a) => a.category === cat).length;
+                        return (
+                          <button
+                            key={cat}
+                            type="button"
+                            onClick={() => setBatchCategory(cat)}
+                            className={`px-2.5 py-0.5 rounded-full font-medium transition-colors shrink-0 ${
+                              batchCategory === cat
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-secondary text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            {cat} ({count})
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Filtered Accessories Checklist */}
+                <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+                  {availableAccessories
+                    .filter((acc) => {
+                      const matchesSearch =
+                        !batchSearch.trim() ||
+                        acc.name.toLowerCase().includes(batchSearch.toLowerCase().trim()) ||
+                        acc.category.toLowerCase().includes(batchSearch.toLowerCase().trim());
+                      const matchesCat = batchCategory === "All" || acc.category === batchCategory;
+                      return matchesSearch && matchesCat;
+                    })
+                    .map((acc) => {
+                      const item = batchItems[acc.id] || {
+                        selected: false,
+                        quantity: 1,
+                        unit_price: acc.selling_price,
+                        is_gift: false,
+                      };
+                      const isSelected = item.selected;
+
+                      return (
+                        <div
+                          key={acc.id}
+                          className={`rounded-xl border p-2.5 transition-all ${
+                            isSelected
+                              ? "border-primary/50 bg-primary/5 shadow-xs"
+                              : "border-border/70 bg-background/90 hover:border-border hover:bg-secondary/20"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <label className="flex items-center gap-2.5 cursor-pointer flex-1 min-w-0 select-none">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleBatchItem(acc.id)}
+                                className="rounded border-input text-primary focus:ring-primary size-4 shrink-0 accent-primary"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-semibold text-xs text-foreground truncate">{acc.name}</span>
+                                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-secondary text-muted-foreground">
+                                    {acc.category}
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-muted-foreground flex items-center gap-2 mt-0.5">
+                                  <span className="font-medium text-primary/90">{acc.quantity} in stock</span>
+                                  <span>·</span>
+                                  <span>Regular: <Taka value={acc.selling_price} /></span>
+                                </div>
+                              </div>
+                            </label>
+
+                            {!isSelected && (
+                              <button
+                                type="button"
+                                onClick={() => toggleBatchItem(acc.id)}
+                                className="text-xs font-semibold text-primary hover:underline shrink-0"
+                              >
+                                + Select
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Expanded row when selected */}
+                          {isSelected && (
+                            <div className="mt-2 pt-2 border-t border-border/60 flex items-center justify-between flex-wrap gap-2 text-xs">
+                              {/* Quantity Stepper */}
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[11px] text-muted-foreground font-medium">Qty:</span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateBatchItem(acc.id, {
+                                      quantity: Math.max(1, (item.quantity || 1) - 1),
+                                    })
+                                  }
+                                  className="size-6 rounded border border-border bg-background flex items-center justify-center text-xs text-muted-foreground hover:text-foreground"
+                                >
+                                  -
+                                </button>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  max={acc.quantity}
+                                  value={item.quantity || 1}
+                                  onChange={(e) =>
+                                    updateBatchItem(acc.id, {
+                                      quantity: Math.min(
+                                        acc.quantity,
+                                        Math.max(1, Number(e.target.value) || 1),
+                                      ),
+                                    })
+                                  }
+                                  className="h-6 w-11 text-center p-0 text-xs font-bold"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const curQty = item.quantity || 1;
+                                    if (curQty < acc.quantity) {
+                                      updateBatchItem(acc.id, { quantity: curQty + 1 });
+                                    } else {
+                                      toast.error(`Only ${acc.quantity} available in stock.`);
+                                    }
+                                  }}
+                                  className="size-6 rounded border border-border bg-background flex items-center justify-center text-xs text-muted-foreground hover:text-foreground"
+                                >
+                                  +
+                                </button>
+                              </div>
+
+                              {/* Gift and Custom Price Controls */}
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => updateBatchItem(acc.id, { is_gift: !item.is_gift })}
+                                  className={`h-6 px-2 rounded-md text-[10px] font-semibold transition-colors ${
+                                    item.is_gift
+                                      ? "bg-primary text-primary-foreground shadow-xs"
+                                      : "bg-secondary text-muted-foreground hover:text-foreground border border-border/60"
+                                  }`}
+                                >
+                                  {item.is_gift ? "🎁 Free Gift (৳0)" : "Paid"}
+                                </button>
+
+                                {!item.is_gift && (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[10px] text-muted-foreground"><TakaSign /></span>
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      value={item.unit_price}
+                                      onChange={(e) =>
+                                        updateBatchItem(acc.id, {
+                                          unit_price: Math.max(0, Number(e.target.value) || 0),
+                                        })
+                                      }
+                                      className="h-6 w-16 px-1 text-right text-xs font-semibold"
+                                    />
+                                  </div>
+                                )}
+
+                                <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 min-w-14 text-right">
+                                  {item.is_gift ? "৳0" : <Taka value={(item.quantity || 1) * (item.unit_price || 0)} />}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                  {availableAccessories.length === 0 && (
+                    <div className="p-4 text-center text-xs text-muted-foreground">
+                      No accessories in stock with quantity &gt; 0.
+                    </div>
+                  )}
+                </div>
+
+                {/* Batch Actions Footer */}
+                <div className="pt-2 border-t border-border flex items-center justify-between flex-wrap gap-2">
+                  <div className="text-xs">
+                    <span className="font-bold text-foreground">
+                      {Object.values(batchItems).filter((it) => it.selected).length} selected
+                    </span>
+                    {Object.values(batchItems).filter((it) => it.selected).length > 0 && (
+                      <span className="text-muted-foreground ml-1.5">
+                        · Total:{" "}
+                        <strong className="text-emerald-600 font-semibold">
+                          <Taka
+                            value={Object.entries(batchItems).reduce((sum, [, it]) => {
+                              if (!it.selected || it.is_gift) return sum;
+                              return sum + (it.quantity || 1) * (it.unit_price || 0);
+                            }, 0)}
+                          />
+                        </strong>
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs rounded-lg"
+                      onClick={() => setIsBatchPickerOpen(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={Object.values(batchItems).filter((it) => it.selected).length === 0}
+                      className="h-7 text-xs rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
+                      onClick={applyBatchSelection}
+                    >
+                      Add Selected ({Object.values(batchItems).filter((it) => it.selected).length}) to Sale
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── INLINE BUNDLED ACCESSORIES LIST ── */}
+            {!isBatchPickerOpen && bundledAccessories.length > 0 && (
+              <div className="space-y-2">
+                {bundledAccessories.map((b, idx) => {
                   const acc = state.accessories.find((a) => a.id === b.accessory_id);
+                  const isStockExceeded = acc && b.quantity > acc.quantity;
+
                   return (
-                    <div key={`${b.accessory_id}-${b.is_gift ? "gift" : "paid"}`} className="flex items-center justify-between rounded-lg bg-card px-3 py-2 text-xs">
-                      <div className="flex-1 min-w-0">
-                        <span className="font-medium">{acc?.name ?? "—"}</span>
-                        <span className="ml-2 text-muted-foreground">{acc?.category}</span>
-                      </div>
-                      <div className="flex items-center gap-2.5 ml-2 shrink-0">
-                        {b.is_gift ? (
-                          <span className="inline-flex items-center gap-1 rounded bg-primary/10 text-primary px-2 py-0.5 text-[11px] font-semibold">
-                            🎁 Free Gift (৳0)
-                          </span>
-                        ) : (
-                          <>
-                            <span className="text-muted-foreground">{b.quantity} × <TakaSign />{b.unit_price.toLocaleString()}</span>
-                            <span className="font-semibold text-emerald-600"><Taka value={b.quantity * b.unit_price} /></span>
-                          </>
-                        )}
+                    <div
+                      key={idx}
+                      className={`rounded-xl border p-2.5 bg-card text-xs space-y-2 transition-all ${
+                        isStockExceeded ? "border-destructive/60 bg-destructive/5" : "border-border"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                        {/* Accessory Selector Dropdown */}
+                        <select
+                          value={b.accessory_id}
+                          onChange={(e) => updateBundledAcc(idx, { accessory_id: e.target.value })}
+                          className="flex-1 min-w-40 h-8 rounded-lg border border-input bg-background px-2 text-xs font-medium"
+                        >
+                          {availableAccessories.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.name} ({a.category}) — {a.quantity} in stock
+                            </option>
+                          ))}
+                        </select>
+
+                        {/* Gift Toggle Button */}
                         <button
                           type="button"
-                          onClick={() => removeAcc(b.accessory_id, b.is_gift)}
-                          className="text-destructive hover:text-destructive/80 transition-colors p-1"
+                          onClick={() => updateBundledAcc(idx, { is_gift: !b.is_gift })}
+                          className={`h-8 px-2.5 rounded-lg text-xs font-semibold shrink-0 transition-colors border ${
+                            b.is_gift
+                              ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                              : "bg-background border-border text-muted-foreground hover:text-foreground"
+                          }`}
+                          title={b.is_gift ? "Customer pays ৳0 (Free gift)" : "Mark as free gift"}
                         >
-                          <Trash2 className="size-3.5" />
+                          {b.is_gift ? "🎁 Free Gift" : "Paid"}
+                        </button>
+
+                        {/* Quantity Stepper */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => updateBundledAcc(idx, { quantity: Math.max(1, b.quantity - 1) })}
+                            className="size-8 rounded-lg border border-border bg-background flex items-center justify-center text-xs font-bold text-muted-foreground hover:text-foreground"
+                          >
+                            -
+                          </button>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={acc?.quantity ?? 99}
+                            value={b.quantity}
+                            onChange={(e) =>
+                              updateBundledAcc(idx, {
+                                quantity: Math.max(1, Number(e.target.value) || 1),
+                              })
+                            }
+                            className="h-8 w-11 text-center p-0 text-xs font-bold"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (acc && b.quantity >= acc.quantity) {
+                                toast.error(`Only ${acc.quantity} in stock`);
+                                return;
+                              }
+                              updateBundledAcc(idx, { quantity: b.quantity + 1 });
+                            }}
+                            className="size-8 rounded-lg border border-border bg-background flex items-center justify-center text-xs font-bold text-muted-foreground hover:text-foreground"
+                          >
+                            +
+                          </button>
+                        </div>
+
+                        {/* Unit Price */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span className="text-[10px] text-muted-foreground"><TakaSign /></span>
+                          <Input
+                            type="number"
+                            min={0}
+                            disabled={b.is_gift}
+                            value={b.is_gift ? "0" : b.unit_price}
+                            onChange={(e) =>
+                              updateBundledAcc(idx, {
+                                unit_price: Math.max(0, Number(e.target.value) || 0),
+                              })
+                            }
+                            className={`h-8 w-18 px-1 text-right text-xs font-semibold ${
+                              b.is_gift ? "bg-muted text-muted-foreground cursor-not-allowed" : ""
+                            }`}
+                          />
+                        </div>
+
+                        {/* Row Subtotal */}
+                        <div className="text-right min-w-16 shrink-0">
+                          {b.is_gift ? (
+                            <span className="text-xs font-bold text-primary">Free</span>
+                          ) : (
+                            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                              <Taka value={b.quantity * b.unit_price} />
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Delete Row */}
+                        <button
+                          type="button"
+                          onClick={() => removeBundledAcc(idx)}
+                          className="size-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
+                          title="Remove accessory"
+                        >
+                          <Trash2 className="size-4" />
                         </button>
                       </div>
+
+                      {/* Stock Exceeded Alert */}
+                      {isStockExceeded && (
+                        <p className="text-[10px] text-destructive font-medium">
+                          ⚠️ Requested quantity ({b.quantity}) exceeds available stock ({acc.quantity}).
+                        </p>
+                      )}
                     </div>
                   );
                 })}
-              </div>
-            )}
 
-            {/* Add accessory row */}
-            {addingAcc && (
-              <div className="rounded-lg border border-dashed border-border bg-card p-3 space-y-2">
-                <div>
-                  <Label className="text-[11px] text-muted-foreground">Accessory Item</Label>
-                  <select
-                    id="spd_acc_select"
-                    value={pickedAccId}
-                    onChange={(e) => handlePickAcc(e.target.value)}
-                    className="mt-1 h-9 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                {/* Quick Add Row & Batch Buttons */}
+                <div className="flex items-center justify-between pt-1 text-xs">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleAddBlankRow}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
+                    >
+                      <Plus className="size-3" /> Add Another Row
+                    </button>
+                    <span className="text-muted-foreground">·</span>
+                    <button
+                      type="button"
+                      onClick={openBatchPicker}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
+                    >
+                      <Layers className="size-3" /> Select Multiple at Once
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setBundledAccessories([])}
+                    className="text-[11px] text-muted-foreground hover:text-destructive transition-colors"
                   >
-                    <option value="">— Select accessory —</option>
-                    {availableAccessories.map((acc) => (
-                      <option key={acc.id} value={acc.id}>
-                        {acc.name} ({acc.category}) — {acc.quantity} in stock
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Free gift checkbox toggle */}
-                <div className="rounded-lg bg-secondary/50 p-2">
-                  <label className="flex items-center gap-2 cursor-pointer text-xs font-medium">
-                    <input
-                      type="checkbox"
-                      checked={isGift}
-                      onChange={(e) => {
-                        setIsGift(e.target.checked);
-                        if (e.target.checked) {
-                          setPickedPrice("0");
-                        } else {
-                          const acc = state.accessories.find((a) => a.id === pickedAccId);
-                          setPickedPrice(acc ? String(acc.selling_price) : "");
-                        }
-                      }}
-                      className="rounded border-input text-primary focus:ring-primary size-4"
-                    />
-                    <span className="flex items-center gap-1 text-primary">
-                      🎁 Offer as Free Gift / Bonus item <span className="text-muted-foreground font-normal">(Customer pays ৳0)</span>
-                    </span>
-                  </label>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <Label className="text-[11px] text-muted-foreground">Quantity</Label>
-                    <Input
-                      id="spd_acc_qty"
-                      type="number"
-                      min={1}
-                      value={pickedQty}
-                      onChange={(e) => setPickedQty(e.target.value)}
-                      className="mt-1 h-9 rounded-xl text-sm"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-[11px] text-muted-foreground">
-                      {isGift ? "Customer Pays" : <>Sale Price (<TakaSign />) each</>}
-                    </Label>
-                    <Input
-                      id="spd_acc_price"
-                      type="number"
-                      min={0}
-                      disabled={isGift}
-                      value={isGift ? "0" : pickedPrice}
-                      onChange={(e) => setPickedPrice(e.target.value)}
-                      className={`mt-1 h-9 rounded-xl text-sm ${isGift ? "bg-muted text-muted-foreground cursor-not-allowed" : ""}`}
-                    />
-                  </div>
-                </div>
-
-                <div className="flex gap-2 pt-1">
-                  <Button type="button" size="sm" className="rounded-xl h-7 px-3 text-xs" onClick={addBundledAcc}>
-                    {isGift ? "Add Free Gift" : "Add Accessory"}
-                  </Button>
-                  <Button type="button" size="sm" variant="outline" className="rounded-xl h-7 px-3 text-xs" onClick={() => setAddingAcc(false)}>
-                    Cancel
-                  </Button>
+                    Clear All
+                  </button>
                 </div>
               </div>
             )}
 
-            {bundledAccessories.length === 0 && !addingAcc && (
-              <p className="text-[11px] text-muted-foreground">
-                No accessories or free gifts bundled. Click &quot;Add Item / Gift&quot; to include bonus items like power banks, chargers, or earbuds.
-              </p>
+            {/* Empty State */}
+            {!isBatchPickerOpen && bundledAccessories.length === 0 && (
+              <div className="rounded-xl border border-dashed border-border bg-card/60 p-4 text-center space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Bundle cases, screen protectors, chargers, or free bonus gifts with this phone sale.
+                </p>
+                <div className="flex items-center justify-center gap-2 pt-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={openBatchPicker}
+                    className="h-8 text-xs rounded-xl gap-1.5 bg-primary text-primary-foreground font-semibold shadow-xs hover:bg-primary/90"
+                  >
+                    <Layers className="size-3.5" /> Select Multiple Accessories
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAddBlankRow}
+                    className="h-8 text-xs rounded-xl gap-1 text-foreground"
+                  >
+                    <Plus className="size-3" /> Add Single Row
+                  </Button>
+                </div>
+              </div>
             )}
           </div>
 
@@ -597,6 +1086,19 @@ export function SellPhoneDialog({
               </div>
             </div>
           )}
+
+            <div>
+              <Label htmlFor="spd_memo_no" className="text-xs font-medium">
+                Memo No. <span className="text-muted-foreground font-normal text-[10px]">(Optional — physical memo reference)</span>
+              </Label>
+              <Input
+                id="spd_memo_no"
+                value={memoNo}
+                onChange={(e) => setMemoNo(e.target.value)}
+                placeholder="e.g. 1048 or MEMO-2026-001"
+                className="mt-1 rounded-xl"
+              />
+            </div>
 
             <div>
               <Label htmlFor="spd_notes" className="text-xs font-medium">
