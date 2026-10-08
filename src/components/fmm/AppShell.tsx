@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { IS_DEV } from "@/lib/fmm-db";
 import { GlobalSearchDialog } from "./GlobalSearchDialog";
 
 const nav = [
@@ -52,8 +53,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <div className="flex min-h-screen bg-background">
-      <aside className="sticky top-0 hidden h-screen w-[236px] shrink-0 flex-col border-r border-border bg-background px-3 py-4 lg:flex overflow-y-auto">
+    <div className="flex h-screen w-screen overflow-hidden bg-background">
+      <aside className="hidden h-screen w-[236px] shrink-0 flex-col border-r border-border bg-background px-3 py-4 lg:flex overflow-y-auto">
         {/* Brand Header */}
         <div className="flex items-center gap-2.5 px-1.5 py-1">
           <div className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground font-bold text-sm shadow-xs">
@@ -64,6 +65,19 @@ export function AppShell({ children }: { children: ReactNode }) {
             <p className="text-[11px] text-muted-foreground truncate">Admin Business Terminal</p>
           </div>
         </div>
+
+        {/* Dev Server Demo Mode Badge */}
+        {IS_DEV && (
+          <div className="mt-2 flex items-center justify-between rounded-lg border border-amber-500/25 bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-600 dark:text-amber-400 select-none">
+            <span className="flex items-center gap-1.5">
+              <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
+              Demo Data Mode
+            </span>
+            <span className="rounded bg-amber-500/20 px-1 text-[9px] font-semibold text-amber-700 dark:text-amber-300">
+              Isolated
+            </span>
+          </div>
+        )}
 
         {/* Global Search Trigger */}
         <button
@@ -118,7 +132,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <div className="min-w-0 flex-1 flex flex-col">
+      <div className="min-w-0 flex-1 flex flex-col h-screen overflow-y-auto overflow-x-hidden">
         {/* Mobile Navbar */}
         <div className="flex items-center justify-between border-b border-border px-4 py-2.5 lg:hidden bg-card">
           <span className="font-bold text-sm">Faridpur Mobile Mart</span>
@@ -146,7 +160,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           ))}
         </div>
 
-        <main className="flex-1">{children}</main>
+        <main className="flex-1 w-full min-w-0">{children}</main>
       </div>
 
       <GlobalSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
@@ -160,14 +174,14 @@ export function PageHeader({
   actions,
 }: {
   title: string;
-  subtitle?: string;
+  subtitle?: ReactNode;
   actions?: ReactNode;
 }) {
   return (
     <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
       <div>
         <h2 className="text-3xl font-bold tracking-tight">{title}</h2>
-        {subtitle ? <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p> : null}
+        {subtitle ? <div className="mt-1 text-sm text-muted-foreground">{subtitle}</div> : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>

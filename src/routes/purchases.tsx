@@ -10,6 +10,7 @@ import {
   ShoppingCart,
   TrendingDown,
   Truck,
+  Warehouse,
   X,
 } from "lucide-react";
 import { useState, useMemo } from "react";
@@ -101,17 +102,46 @@ function PurchasesPage() {
     });
   }, [state]);
 
+  // Check if a date string belongs to the current calendar month (timezone-safe)
+  const isThisMonth = (dateStr: string) => {
+    if (!dateStr) return false;
+    const str = dateStr.slice(0, 10);
+    const parts = str.split("-");
+    if (parts.length === 3 && parts[0] !== undefined && parts[1] !== undefined) {
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      const now = new Date();
+      return year === now.getFullYear() && month === now.getMonth();
+    }
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return false;
+    const now = new Date();
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  };
+
   const stats = useMemo(() => {
     const list = augmentedPurchases;
-    const totalSpend = list.reduce((s, p) => s + p.computedTotal, 0);
-    const totalPaid = list.reduce((s, p) => s + p.computedPaid, 0);
-    const totalDue = list.reduce((s, p) => s + p.computedDue, 0);
-    return { count: list.length, totalSpend, totalPaid, totalDue };
-  }, [augmentedPurchases]);
+    // Monthly: all purchases (supplier + own stock) created this month
+    const thisMonthPurchases = list.filter((p) => isThisMonth(p.date || p.created_at));
+    const totalSpend = thisMonthPurchases.reduce((s, p) => s + p.computedTotal, 0);
+    const ownStockSpend = thisMonthPurchases
+      .filter((p) => p.supplier_id === "own_stock")
+      .reduce((s, p) => s + p.computedTotal, 0);
+    // Monthly paid: supplier payments this month only (excludes own-stock which has no payment)
+    const totalPaid = (state.supplier_payments ?? [])
+      .filter((sp) => isThisMonth(sp.date || sp.created_at))
+      .reduce((s, sp) => s + sp.amount, 0);
+    // Outstanding: cumulative across ALL time — carries forward until paid
+    const totalDue = list
+      .filter((p) => p.supplier_id !== "own_stock")
+      .reduce((s, p) => s + p.computedDue, 0);
+    return { count: thisMonthPurchases.length, totalSpend, totalPaid, totalDue, ownStockSpend };
+  }, [augmentedPurchases, state.supplier_payments]);
 
   const filteredPurchases = useMemo(() => {
     const q = search.trim().toLowerCase();
     return augmentedPurchases.filter((p) => {
+      const isOwnStock = p.supplier_id === "own_stock";
       const matchSupplier = supplierFilter === "All" || p.supplier_id === supplierFilter;
       const matchFilter =
         filter === "All"
@@ -122,15 +152,18 @@ function PurchasesPage() {
               ? p.type === "Phone" || (p.phone_ids && p.phone_ids.length > 0)
               : filter === "Mixed"
                 ? p.type === "Mixed"
-                : filter === "Paid"
-                  ? p.computedStatus === "Paid"
-                  : filter === "Due"
-                    ? p.computedStatus === "Due" || p.computedStatus === "Not Paid"
-                    : true;
-      const sup = state.suppliers.find((s) => s.id === p.supplier_id);
+                : filter === "Own Stock"
+                  ? isOwnStock
+                  : filter === "Paid"
+                    ? p.computedStatus === "Paid"
+                    : filter === "Due"
+                      ? p.computedStatus === "Due" || p.computedStatus === "Not Paid"
+                      : true;
+      const sup = isOwnStock ? null : state.suppliers.find((s) => s.id === p.supplier_id);
       const matchSearch =
         !q ||
         (sup && sup.name.toLowerCase().includes(q)) ||
+        (isOwnStock && "own stock".includes(q)) ||
         (p.notes && p.notes.toLowerCase().includes(q)) ||
         p.id.toLowerCase().includes(q);
       return matchSupplier && matchFilter && matchSearch;
@@ -186,7 +219,7 @@ function PurchasesPage() {
               </span>
             </div>
             <p className="mt-4 text-3xl font-bold"><Taka value={stats.totalSpend} /></p>
-            <p className="mt-2 text-xs text-muted-foreground">Across {stats.count} purchase batches</p>
+            <p className="mt-2 text-xs text-muted-foreground">Across {stats.count} purchases this month</p>
           </div>
 
           <div className="rounded-xl border border-border bg-card p-5">
@@ -197,7 +230,7 @@ function PurchasesPage() {
               </span>
             </div>
             <p className="mt-4 text-3xl font-bold text-success"><Taka value={stats.totalPaid} /></p>
-            <p className="mt-2 text-xs text-muted-foreground">Cleared to suppliers</p>
+            <p className="mt-2 text-xs text-muted-foreground">Cleared to suppliers this month</p>
           </div>
 
           <div className="rounded-xl border border-border bg-card p-5">
@@ -215,20 +248,20 @@ function PurchasesPage() {
 
           <div className="rounded-xl border border-border bg-card p-5">
             <div className="flex items-start justify-between">
-              <span className="text-xs font-semibold tracking-wide text-muted-foreground">ACTIVE SUPPLIERS</span>
+              <span className="text-xs font-semibold tracking-wide text-muted-foreground">OWN STOCK SPEND</span>
               <span className="rounded-lg p-2 bg-secondary text-foreground">
-                <Truck className="size-4" />
+                <Warehouse className="size-4" />
               </span>
             </div>
-            <p className="mt-4 text-3xl font-bold">{state.suppliers?.length ?? 0}</p>
-            <p className="mt-2 text-xs text-muted-foreground">Supplying stock & goods</p>
+            <p className="mt-4 text-3xl font-bold text-primary"><Taka value={stats.ownStockSpend} /></p>
+            <p className="mt-2 text-xs text-muted-foreground">Self-funded stock this month</p>
           </div>
         </div>
 
         {/* Filter Bar */}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-1.5">
-            {["All", "Accessory", "Phone", "Mixed", "Paid", "Due"].map((f) => (
+            {["All", "Accessory", "Phone", "Mixed", "Own Stock", "Paid", "Due"].map((f) => (
               <button
                 key={f}
                 type="button"
@@ -251,6 +284,7 @@ function PurchasesPage() {
               className="h-9 rounded-xl border border-border bg-card px-3 text-xs text-foreground"
             >
               <option value="All">All Suppliers</option>
+              <option value="own_stock">🏢 Own Stock</option>
               {state.suppliers.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -311,7 +345,14 @@ function PurchasesPage() {
                       {new Date(p.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </td>
                     <td className="px-5 py-4">
-                      {sup ? (
+                      {p.supplier_id === "own_stock" ? (
+                        <>
+                          <Link to="/stock" className="font-semibold text-primary hover:underline transition-colors flex items-center gap-1">
+                            🏢 Own Stock
+                          </Link>
+                          <p className="text-xs text-muted-foreground">Self-funded internal stock</p>
+                        </>
+                      ) : sup ? (
                         <Link
                           to="/suppliers/$supplierId"
                           params={{ supplierId: p.supplier_id }}
@@ -322,7 +363,7 @@ function PurchasesPage() {
                       ) : (
                         <p className="font-semibold text-foreground">Supplier</p>
                       )}
-                      <p className="text-xs text-muted-foreground">{sup?.contact || ""}</p>
+                      {p.supplier_id !== "own_stock" && <p className="text-xs text-muted-foreground">{sup?.contact || ""}</p>}
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-1.5">
@@ -335,10 +376,16 @@ function PurchasesPage() {
                       <Taka value={p.computedTotal} />
                     </td>
                     <td className="px-5 py-4 text-right text-success font-medium">
-                      <Taka value={p.computedPaid} />
+                      {p.supplier_id === "own_stock" ? (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      ) : (
+                        <Taka value={p.computedPaid} />
+                      )}
                     </td>
                     <td className="px-5 py-4 text-right">
-                      {p.computedDue > 0 ? (
+                      {p.supplier_id === "own_stock" ? (
+                        <span className="text-xs text-muted-foreground">0 ৳</span>
+                      ) : p.computedDue > 0 ? (
                         <span className="font-bold text-destructive"><Taka value={p.computedDue} /></span>
                       ) : (
                         <span className="text-xs text-success font-medium">0 ৳</span>
@@ -348,7 +395,11 @@ function PurchasesPage() {
                       <StatusBadge status={p.computedStatus} />
                     </td>
                     <td className="px-5 py-4 text-right">
-                      {p.isPhoneBatch ? (
+                      {p.supplier_id === "own_stock" ? (
+                        <Link to="/stock" className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+                          View in Stock →
+                        </Link>
+                      ) : p.isPhoneBatch ? (
                         p.computedDue > 0 ? (
                           <Link
                             to="/suppliers/$supplierId"

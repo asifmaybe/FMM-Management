@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, Loader2, Printer, X } from "lucide-react";
+import { Download, Headphones, Loader2, Printer, X } from "lucide-react";
 import { toast } from "sonner";
 import { jsPDF } from "jspdf";
 import { toPng } from "html-to-image";
@@ -11,7 +11,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { ComprehensiveBusinessReport } from "@/lib/fmm-reports";
-import { getTransactionPayment } from "@/lib/fmm-store";
+import { useFmm, getTransactionPayment } from "@/lib/fmm-store";
+import { getTransactionCost } from "@/lib/fmm-analytics";
 import { Taka } from "./Taka";
 
 interface BusinessReportPdfDialogProps {
@@ -29,6 +30,7 @@ export function BusinessReportPdfDialog({
 }: BusinessReportPdfDialogProps) {
   if (!report) return null;
 
+  const { state } = useFmm();
   const [isSaving, setIsSaving] = useState(false);
 
   const handlePrint = () => {
@@ -348,6 +350,14 @@ export function BusinessReportPdfDialog({
                   <td className="px-4 py-2 text-slate-800">Sales Revenue (Gross Billings)</td>
                   <td className="px-4 py-2 text-right text-slate-900"><Taka value={profit.salesRevenue} /></td>
                 </tr>
+                <tr className="bg-slate-50/40">
+                  <td className="px-4 py-1.5 text-slate-500 pl-8 text-[11px]">Phone Revenue</td>
+                  <td className="px-4 py-1.5 text-right text-slate-700 font-medium text-[11px]"><Taka value={profit.phoneRevenue} /></td>
+                </tr>
+                <tr className="bg-slate-50/40">
+                  <td className="px-4 py-1.5 text-slate-500 pl-8 text-[11px]">Accessory Revenue</td>
+                  <td className="px-4 py-1.5 text-right text-slate-700 font-medium text-[11px]"><Taka value={profit.accessoryRevenue} /></td>
+                </tr>
                 <tr>
                   <td className="px-4 py-2 text-slate-600 pl-8">Less: Cost of Goods Sold (COGS)</td>
                   <td className="px-4 py-2 text-right text-slate-600 font-medium">− <Taka value={profit.cogs} /></td>
@@ -356,10 +366,24 @@ export function BusinessReportPdfDialog({
                   <td className="px-4 py-2">Gross Profit (Product Margin)</td>
                   <td className="px-4 py-2 text-right text-emerald-700"><Taka value={profit.grossProfit} /></td>
                 </tr>
+                <tr className="bg-emerald-50/20">
+                  <td className="px-4 py-1.5 text-slate-500 pl-8 text-[11px]">Phone Gross Profit</td>
+                  <td className={`px-4 py-1.5 text-right font-semibold text-[11px] ${profit.phoneGrossProfit >= 0 ? "text-emerald-700" : "text-rose-700"}`}><Taka value={profit.phoneGrossProfit} /></td>
+                </tr>
+                <tr className="bg-emerald-50/20">
+                  <td className="px-4 py-1.5 text-slate-500 pl-8 text-[11px]">Accessory Gross Profit</td>
+                  <td className={`px-4 py-1.5 text-right font-semibold text-[11px] ${profit.accessoryGrossProfit >= 0 ? "text-emerald-700" : "text-rose-700"}`}><Taka value={profit.accessoryGrossProfit} /></td>
+                </tr>
                 <tr>
                   <td className="px-4 py-2 text-slate-600 pl-8">Less: Operating Expenses (Rent, Salary, Utilities, Bills)</td>
                   <td className="px-4 py-2 text-right text-slate-600 font-medium">− <Taka value={profit.operatingExpenses} /></td>
                 </tr>
+                {profit.restockedReturnCost > 0 && (
+                  <tr>
+                    <td className="px-4 py-2 text-slate-600 pl-8">Less: Customer Return Refunds (Restocked Cost)</td>
+                    <td className="px-4 py-2 text-right text-slate-600 font-medium">− <Taka value={profit.restockedReturnCost} /></td>
+                  </tr>
+                )}
                 <tr className="bg-slate-900 text-white font-black text-sm">
                   <td className="px-4 py-2.5">Net Business Profit</td>
                   <td className="px-4 py-2.5 text-right"><Taka value={profit.netProfit} /></td>
@@ -530,6 +554,7 @@ export function BusinessReportPdfDialog({
                     <th className="p-2">Customer</th>
                     <th className="p-2">Type</th>
                     <th className="p-2 text-right">Revenue</th>
+                    <th className="p-2 text-right">Profit</th>
                     <th className="p-2 text-right">Paid</th>
                     <th className="p-2 text-right">Due</th>
                     <th className="p-2 text-center">Status</th>
@@ -538,12 +563,39 @@ export function BusinessReportPdfDialog({
                 <tbody className="divide-y divide-slate-200">
                   {report.transactions.slice(0, 50).map((t) => {
                     const pay = getTransactionPayment(t);
+                    const cost = getTransactionCost(state, t);
+                    const profit = pay.total - cost;
+                    const accessoryItems = (t.items ?? []).filter((it) => it.type === "accessory");
+                    const hasAccessories =
+                      accessoryItems.length > 0 || t.phone_id === "acc_multi";
+                    const totalAccQty = accessoryItems.length > 0
+                      ? accessoryItems.reduce((sum, it) => sum + (it.quantity || 1), 0)
+                      : 1;
+                    const accessorySummary = accessoryItems.length > 0
+                      ? accessoryItems.map((it) => `${it.quantity || 1}x ${it.name}`).join(", ")
+                      : "Accessory included";
+
                     return (
                       <tr key={t.id}>
                         <td className="p-2 font-mono text-[11px]">{new Date(t.date).toLocaleDateString("en-GB")}</td>
                         <td className="p-2 font-medium text-slate-900">{t.customer_name}</td>
-                        <td className="p-2 text-slate-600">{t.type}</td>
+                        <td className="p-2 text-slate-600">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-medium text-slate-800">{t.type}</span>
+                            {hasAccessories && (
+                              <span
+                                className="inline-flex items-center justify-center size-4.5 rounded bg-indigo-50 border border-indigo-200 text-indigo-600 shrink-0"
+                                title={accessorySummary ? `Accessories: ${accessorySummary}` : "Includes accessories"}
+                              >
+                                <Headphones className="size-3" />
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="p-2 text-right font-semibold"><Taka value={pay.total} /></td>
+                        <td className={`p-2 text-right font-bold ${profit >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                          <Taka value={profit} />
+                        </td>
                         <td className="p-2 text-right text-emerald-700 font-medium"><Taka value={pay.paid} /></td>
                         <td className="p-2 text-right text-amber-700 font-medium"><Taka value={pay.due} /></td>
                         <td className="p-2 text-center font-bold">{pay.status}</td>

@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { normalizeBatteryHealth, useFmm } from "@/lib/fmm-store";
+import { normalizeBatteryHealth, normalizeCycleCount, useFmm } from "@/lib/fmm-store";
 import { type Phone, type PhoneCondition, type PhoneStatus, type SourceType, PHONE_BRAND_OPTIONS, PHONE_RAM_OPTIONS, PHONE_ROM_OPTIONS } from "@/lib/fmm-types";
 import { TakaSign } from "@/components/fmm/Taka";
 
@@ -41,6 +41,8 @@ export function EditPhoneDialog({ phone, open, onOpenChange, onDeleted }: EditPh
     model: "",
     imei: "",
     imei_secondary: "",
+    serial_number: "",
+    cycle_count: "",
     storage_ram: "",
     battery_health: "",
     condition: "Used - Good" as PhoneCondition,
@@ -77,6 +79,8 @@ export function EditPhoneDialog({ phone, open, onOpenChange, onDeleted }: EditPh
         model: phone.model || "",
         imei: phone.imei || "",
         imei_secondary: phone.imei_secondary || "",
+        serial_number: phone.serial_number || "",
+        cycle_count: phone.cycle_count != null ? String(phone.cycle_count) : "",
         storage_ram: phone.storage_ram || "",
         battery_health: phone.battery_health || "",
         condition: phone.condition || "Used - Good",
@@ -129,8 +133,12 @@ export function EditPhoneDialog({ phone, open, onOpenChange, onDeleted }: EditPh
       model: form.model.trim(),
       imei: form.imei.trim(),
       imei_secondary: form.imei_secondary.trim() || null,
-      storage_ram: [rom, ram].filter(Boolean).join(" / ") || "Standard",
+      storage_ram: form.brand.trim().toLowerCase() === "apple"
+        ? rom
+        : [rom, ram].filter(Boolean).join(" / ") || "Standard",
       battery_health: normalizeBatteryHealth(form.battery_health),
+      serial_number: form.serial_number.trim() || null,
+      cycle_count: normalizeCycleCount(form.cycle_count),
       condition: form.condition,
       source_type: form.source_type,
       supplier_id: form.source_type === "Supplier Purchase" && form.supplier_id ? form.supplier_id : null,
@@ -253,20 +261,22 @@ export function EditPhoneDialog({ phone, open, onOpenChange, onDeleted }: EditPh
                   ))}
                 </select>
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">RAM</Label>
-                <select
-                  value={ram}
-                  onChange={(e) => setRam(e.target.value)}
-                  className="h-9 w-full rounded-xl border border-input bg-background px-3 text-sm font-medium"
-                >
-                  {PHONE_RAM_OPTIONS.map((opt) => (
-                    <option key={opt} value={opt}>
-                      {opt}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {form.brand !== "Apple" && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">RAM</Label>
+                  <select
+                    value={ram}
+                    onChange={(e) => setRam(e.target.value)}
+                    className="h-9 w-full rounded-xl border border-input bg-background px-3 text-sm font-medium"
+                  >
+                    {PHONE_RAM_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -304,6 +314,29 @@ export function EditPhoneDialog({ phone, open, onOpenChange, onDeleted }: EditPh
                     With Box
                   </label>
                 </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Serial Number (Optional)</Label>
+                <Input
+                  value={form.serial_number}
+                  onChange={(e) => setForm({ ...form, serial_number: e.target.value })}
+                  placeholder="e.g. F17X..."
+                  className="rounded-xl font-mono text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Cycle Count (Optional)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={form.cycle_count}
+                  onChange={(e) => setForm({ ...form, cycle_count: e.target.value })}
+                  placeholder="e.g. 142"
+                  className="rounded-xl"
+                />
               </div>
             </div>
           </TabsContent>
@@ -414,7 +447,7 @@ export function EditPhoneDialog({ phone, open, onOpenChange, onDeleted }: EditPh
                     className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                   >
                     <option value="">Select a supplier...</option>
-                    {state.suppliers.map((s) => (
+                    {state.suppliers.filter((s) => s.supplier_type === "Phone").map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name} ({s.status})
                       </option>

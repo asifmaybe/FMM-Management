@@ -31,6 +31,7 @@ export interface ExecutiveKPIs {
   totalPurchases: number;
   totalExpenses: number;
   grossProfit: number;
+  restockedReturnCost: number;
   netProfit: number;
   totalCOGS: number;
   netCashMovement: number;
@@ -59,8 +60,16 @@ export interface ProfitReportMetrics {
   grossProfit: number;
   grossMarginPercent: number;
   operatingExpenses: number;
+  restockedReturnCost: number;
   netProfit: number;
   netMarginPercent: number;
+  // Per-category breakdown
+  phoneRevenue: number;
+  accessoryRevenue: number;
+  phoneCogs: number;
+  accessoryCogs: number;
+  phoneGrossProfit: number;
+  accessoryGrossProfit: number;
 }
 
 export interface CashFlowMetrics {
@@ -73,6 +82,7 @@ export interface CashFlowMetrics {
     supplierDirectPayments: number;
     operatingExpenses: number;
     customerIntakes: number;
+    customerReturnRefunds: number;
   };
 }
 
@@ -378,6 +388,8 @@ export function generateBusinessReport(state: FmmState, range: ReportDateRange):
   let cashInflow = 0;
   let periodCustomerOutstanding = 0;
   let totalCOGS = 0;
+  let phoneCogs = 0;
+  let accessoryCogs = 0;
   let phoneRevenue = 0;
   let accessoryRevenue = 0;
   let phoneSalesCount = 0;
@@ -395,7 +407,8 @@ export function generateBusinessReport(state: FmmState, range: ReportDateRange):
     cashInflow += pay.paid;
     periodCustomerOutstanding += pay.due;
 
-    const cogs = getTransactionCost(state, t);
+    const isReturned = Boolean(t.return_info || t.type === "Return");
+    const cogs = isReturned ? 0 : getTransactionCost(state, t);
     totalCOGS += cogs;
 
     if (pay.status === "Paid") paidCount++;
@@ -414,15 +427,21 @@ export function generateBusinessReport(state: FmmState, range: ReportDateRange):
 
     if (t.items && t.items.length > 0) {
       for (const it of t.items) {
+        const itemCost = isReturned ? 0 : (it.cost_price || 0) * (it.quantity || 1);
+        const itemRevenue = it.subtotal ?? it.unit_price * (it.quantity || 1);
         if (it.type === "phone") {
-          phoneRevenue += it.subtotal ?? it.unit_price * (it.quantity || 1);
+          phoneRevenue += itemRevenue;
+          phoneCogs += itemCost;
         } else if (it.type === "accessory" && !it.is_gift) {
-          accessoryRevenue += it.subtotal ?? it.unit_price * (it.quantity || 1);
+          accessoryRevenue += itemRevenue;
+          accessoryCogs += itemCost;
         }
       }
     } else {
       // Legacy single phone transaction
+      const legacyCost = isReturned ? 0 : getTransactionCost(state, t);
       phoneRevenue += pay.total;
+      phoneCogs += legacyCost;
     }
   }
 
@@ -430,14 +449,20 @@ export function generateBusinessReport(state: FmmState, range: ReportDateRange):
   const grossProfit = totalSalesRevenue - totalCOGS;
   const grossMarginPercent = totalSalesRevenue > 0 ? (grossProfit / totalSalesRevenue) * 100 : 0;
   const operatingExpenses = filteredExpenses.reduce((s, e) => s + e.amount, 0);
-  const netProfit = grossProfit - operatingExpenses;
+  const restockedReturnCost = filteredReturns.reduce((s, r) => s + (r.refund_amount || 0), 0);
+  const netProfit = grossProfit - operatingExpenses - restockedReturnCost;
   const netMarginPercent = totalSalesRevenue > 0 ? (netProfit / totalSalesRevenue) * 100 : 0;
 
   // 3. Cash Flow Metrics
+  // NOTE: purchasePayments (from p.paid_amount) is for display only.
+  // Every payment that updates p.paid_amount also creates a SupplierPayment record,
+  // so we must NOT add purchasePayments to cashOutflow — that would double-count.
+  // supplierDirectPayments (from state.supplier_payments) is the authoritative cash ledger.
   const purchasePayments = filteredPurchases.reduce((s, p) => s + (p.paid_amount || 0), 0);
   const supplierDirectPayments = filteredSupplierPayments.reduce((s, sp) => s + sp.amount, 0);
   const customerIntakes = filteredCustomerPurchases.reduce((s, cp) => s + cp.purchase_price, 0);
-  const cashOutflow = purchasePayments + supplierDirectPayments + operatingExpenses + customerIntakes;
+  const customerReturnRefunds = filteredReturns.reduce((s, r) => s + (r.refund_amount || 0), 0);
+  const cashOutflow = supplierDirectPayments + operatingExpenses + customerIntakes + customerReturnRefunds;
   const netCashMovement = cashInflow - cashOutflow;
 
   // 4. Customer Due & Aging Analysis (Authoritative across transactions)
@@ -564,7 +589,7 @@ export function generateBusinessReport(state: FmmState, range: ReportDateRange):
   // 8. Inventory Metrics (Snapshot from current authoritative inventory)
   const availablePhones = (state.phones ?? []).filter((p) => p.status === "Available");
   const availablePhoneCost = availablePhones.reduce((s, p) => s + p.purchase_price, 0);
-  const soldInPeriodPhones = (state.phones ?? []).filter((p) => p.status === "Sold" && isWithin(p.updated_at));
+  const soldInPeriodPhones = (state.phones ?? []).filter((p) => p.status === "Sold" && isWithin(p.sold_date || p.updated_at));
   const inInspectionPhones = (state.phones ?? []).filter((p) => p.status === "In Inspection");
 
   const accessories = state.accessories ?? [];
@@ -622,7 +647,7 @@ export function generateBusinessReport(state: FmmState, range: ReportDateRange):
       cashCollected: cashInflow,
       customerDue: periodCustomerOutstanding,
       purchases: totalPurchasesAmount,
-      supplierPayments: supplierDirectPayments + purchasePayments,
+      supplierPayments: supplierDirectPayments,
       expenses: operatingExpenses,
       grossProfit,
       netProfit,
@@ -647,6 +672,7 @@ export function generateBusinessReport(state: FmmState, range: ReportDateRange):
       totalPurchases: totalPurchasesAmount,
       totalExpenses: operatingExpenses,
       grossProfit,
+      restockedReturnCost,
       netProfit,
       totalCOGS,
       netCashMovement,
@@ -673,8 +699,15 @@ export function generateBusinessReport(state: FmmState, range: ReportDateRange):
       grossProfit,
       grossMarginPercent,
       operatingExpenses,
+      restockedReturnCost,
       netProfit,
       netMarginPercent,
+      phoneRevenue,
+      accessoryRevenue,
+      phoneCogs,
+      accessoryCogs,
+      phoneGrossProfit: phoneRevenue - phoneCogs,
+      accessoryGrossProfit: accessoryRevenue - accessoryCogs,
     },
     cashFlow: {
       cashInflow,
@@ -686,6 +719,7 @@ export function generateBusinessReport(state: FmmState, range: ReportDateRange):
         supplierDirectPayments,
         operatingExpenses,
         customerIntakes,
+        customerReturnRefunds,
       },
     },
     customerDue: {
@@ -702,7 +736,7 @@ export function generateBusinessReport(state: FmmState, range: ReportDateRange):
     },
     suppliers: {
       totalPurchaseValue: totalPurchasesAmount,
-      totalSupplierPayments: supplierDirectPayments + purchasePayments,
+      totalSupplierPayments: supplierDirectPayments,
       purchaseInvoiceOutstanding,
       consignmentPayable: 0,
       supplierBreakdown: Array.from(supplierBreakdownMap.values()),

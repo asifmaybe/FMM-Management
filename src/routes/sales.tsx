@@ -19,6 +19,7 @@ import {
   Tag,
   TrendingUp,
   Wrench,
+  MapPin,
   X,
 } from "lucide-react";
 import { useState, useMemo } from "react";
@@ -228,17 +229,25 @@ function SalesPage() {
       }
 
       const phone = state.phones.find((p) => p.id === t.phone_id);
+      const custAddr =
+        t.customer_address ||
+        (t.customer_id
+          ? state.customers.find((c) => c.id === t.customer_id)?.address
+          : t.customer_phone
+          ? state.customers.find((c) => c.phone === t.customer_phone)?.address
+          : "");
       const matchSearch =
         !q ||
         t.customer_name.toLowerCase().includes(q) ||
         t.customer_phone.toLowerCase().includes(q) ||
+        (custAddr && custAddr.toLowerCase().includes(q)) ||
         (phone && (phone.brand.toLowerCase().includes(q) || phone.model.toLowerCase().includes(q) || phone.imei.includes(q))) ||
         (t.memo_no && t.memo_no.toLowerCase().includes(q)) ||
         (t.items && t.items.some((i) => i.name.toLowerCase().includes(q)));
 
       return matchFilter && matchDate && matchSearch;
     });
-  }, [state.transactions, state.phones, filter, search, dateFilter, exactDate]);
+  }, [state.transactions, state.phones, state.customers, filter, search, dateFilter, exactDate]);
 
   const filteredSalesStats = useMemo(() => {
     let total = 0;
@@ -878,6 +887,21 @@ function SalesPage() {
                         <td className="w-[150px] px-3 py-2.5">
                           <p className="font-medium text-foreground text-xs leading-tight">{t.customer_name}</p>
                           <p className="font-mono text-[11px] text-muted-foreground">{t.customer_phone}</p>
+                          {(() => {
+                            const addr =
+                              t.customer_address ||
+                              (t.customer_id
+                                ? state.customers.find((c) => c.id === t.customer_id)?.address
+                                : t.customer_phone
+                                ? state.customers.find((c) => c.phone === t.customer_phone)?.address
+                                : null);
+                            return addr ? (
+                              <p className="text-[10.5px] text-muted-foreground truncate max-w-[140px] flex items-center gap-1 mt-0.5" title={addr}>
+                                <MapPin className="size-2.5 shrink-0 text-muted-foreground/70" />
+                                <span className="truncate">{addr}</span>
+                              </p>
+                            ) : null;
+                          })()}
                         </td>
                         <td className="w-[170px] px-3 py-2.5 text-right whitespace-nowrap">
                           <p className="font-bold text-foreground text-xs">

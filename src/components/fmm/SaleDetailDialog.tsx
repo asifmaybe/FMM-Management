@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import {
   ArrowLeftRight,
   Box,
+  Building2,
   Calendar,
   Gift,
   HandCoins,
@@ -14,6 +15,7 @@ import {
   Tag,
   TrendingUp,
   User,
+  MapPin,
   X,
   Check,
 } from "lucide-react";
@@ -23,9 +25,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Taka } from "@/components/fmm/Taka";
 import { useFmm, getTransactionPayment, formatBatteryHealth } from "@/lib/fmm-store";
+import { formatStorageRam } from "@/lib/utils";
 import { CollectDueDialog } from "@/components/fmm/CollectDueDialog";
 import { ProcessReturnDialog } from "@/components/fmm/ProcessReturnDialog";
 import { InspectTradeInDialog } from "@/components/fmm/InspectTradeInDialog";
+import { EditSaleDialog } from "@/components/fmm/EditSaleDialog";
 import type { Transaction } from "@/lib/fmm-types";
 
 interface SaleDetailDialogProps {
@@ -38,6 +42,7 @@ export function SaleDetailDialog({ transaction, onClose }: SaleDetailDialogProps
   const [collectOpen, setCollectOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
   const [inspectOpen, setInspectOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   // Editable cost state
   const [editingPhoneCost, setEditingPhoneCost] = useState(false);
@@ -55,6 +60,19 @@ export function SaleDetailDialog({ transaction, onClose }: SaleDetailDialogProps
     : null;
   const campaign = tx.campaign_id
     ? state.campaigns.find((c) => c.id === tx.campaign_id)
+    : null;
+
+  const customerAddress =
+    tx.customer_address ||
+    (tx.customer_id
+      ? state.customers.find((c) => c.id === tx.customer_id)?.address
+      : tx.customer_phone
+      ? state.customers.find((c) => c.phone === tx.customer_phone)?.address
+      : null);
+
+  // Resolve supplier for the sold phone
+  const phoneSupplier = phone?.supplier_id
+    ? state.suppliers.find((s) => s.id === phone.supplier_id)
     : null;
 
   const pay = getTransactionPayment(tx);
@@ -217,6 +235,12 @@ export function SaleDetailDialog({ transaction, onClose }: SaleDetailDialogProps
                   <div>
                     <p className="font-semibold text-foreground">{tx.customer_name}</p>
                     <p className="font-mono text-xs text-muted-foreground">{tx.customer_phone}</p>
+                    {customerAddress ? (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                        <MapPin className="size-3 text-muted-foreground shrink-0" />
+                        <span>{customerAddress}</span>
+                      </p>
+                    ) : null}
                   </div>
                 }
               />
@@ -299,7 +323,7 @@ export function SaleDetailDialog({ transaction, onClose }: SaleDetailDialogProps
                   </div>
                   <div>
                     <span className="text-muted-foreground block text-[11px]">Storage / RAM</span>
-                    <p className="font-medium text-foreground">{phone.storage_ram || "—"}</p>
+                    <p className="font-medium text-foreground">{formatStorageRam(phone.brand, phone.storage_ram)}</p>
                   </div>
                   <div>
                     <span className="text-muted-foreground block text-[11px]">Condition & Battery</span>
@@ -307,6 +331,18 @@ export function SaleDetailDialog({ transaction, onClose }: SaleDetailDialogProps
                       {phone.condition} · Battery {formatBatteryHealth(phone.battery_health)}
                     </p>
                   </div>
+                  {phone.serial_number ? (
+                    <div>
+                      <span className="text-muted-foreground block text-[11px]">Serial Number</span>
+                      <p className="font-mono text-foreground">{phone.serial_number}</p>
+                    </div>
+                  ) : null}
+                  {phone.cycle_count != null ? (
+                    <div>
+                      <span className="text-muted-foreground block text-[11px]">Cycle Count</span>
+                      <p className="font-medium text-foreground">{phone.cycle_count} cycles</p>
+                    </div>
+                  ) : null}
                   {/* Editable Purchase Cost */}
                   <div>
                     <span className="text-muted-foreground block text-[11px]">
@@ -350,6 +386,44 @@ export function SaleDetailDialog({ transaction, onClose }: SaleDetailDialogProps
                   <div>
                     <span className="text-muted-foreground block text-[11px]">Unit Sold Price</span>
                     <p className="font-semibold text-emerald-600"><Taka value={phone.sold_price ?? tx.amount} /></p>
+                  </div>
+
+                  {/* Supplier / Source Info — always shown */}
+                  <div className="sm:col-span-2 pt-1 border-t border-border/50 mt-1">
+                    <span className="text-muted-foreground block text-[11px] mb-1.5 flex items-center gap-1">
+                      <Building2 className="size-3" /> Source / Supplier
+                    </span>
+                    {phoneSupplier ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300">
+                          <Building2 className="size-3" />
+                          {phoneSupplier.name}
+                        </span>
+                        {phoneSupplier.contact && (
+                          <span className="text-xs text-muted-foreground font-mono">{phoneSupplier.contact}</span>
+                        )}
+                        {phoneSupplier.supplier_type && (
+                          <span className="inline-flex items-center rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground border border-border">
+                            {phoneSupplier.supplier_type}
+                          </span>
+                        )}
+                        {phone.source_type && (
+                          <span className="inline-flex items-center rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground border border-border">
+                            {phone.source_type}
+                          </span>
+                        )}
+                      </div>
+                    ) : phone.supplier_id ? (
+                      <p className="text-xs text-muted-foreground italic">Supplier record not found (ID: {phone.supplier_id})</p>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1 rounded-lg bg-secondary border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                          <Building2 className="size-3" />
+                          {phone.source_type || "Own Stock"}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">No supplier linked</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -564,6 +638,42 @@ export function SaleDetailDialog({ transaction, onClose }: SaleDetailDialogProps
               </ul>
             </div>
 
+            {/* Payment History Ledger */}
+            {tx.payment_history && tx.payment_history.length > 0 && (
+              <div className="rounded-xl border border-border bg-card p-4 space-y-2">
+                <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase flex items-center gap-1.5">
+                  <HandCoins className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                  Payment Ledger ({tx.payment_history.length} {tx.payment_history.length === 1 ? "Entry" : "Entries"})
+                </p>
+                <div className="divide-y divide-border/60">
+                  {tx.payment_history.map((entry, idx) => (
+                    <div key={entry.id || idx} className="py-2 flex items-center justify-between text-xs">
+                      <div>
+                        <span className="font-medium text-foreground">
+                          {new Date(entry.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                          {" · "}
+                          <span className="text-muted-foreground">{entry.payment_method || "Cash"}</span>
+                        </span>
+                        {entry.notes && (
+                          <p className="text-[11px] text-muted-foreground mt-0.5">{entry.notes}</p>
+                        )}
+                      </div>
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                        +<Taka value={entry.amount} />
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="pt-2 border-t border-border/60 flex justify-between items-center text-xs">
+                  <span className="text-muted-foreground">Total Collected</span>
+                  <span className="font-bold text-foreground tabular-nums">
+                    <Taka value={tx.payment_history.reduce((s, e) => s + e.amount, 0)} />
+                  </span>
+                </div>
+              </div>
+            )}
+
+
             {/* Notes */}
             {tx.notes && (
               <div>
@@ -581,6 +691,16 @@ export function SaleDetailDialog({ transaction, onClose }: SaleDetailDialogProps
               Order ID: <span className="font-mono font-medium text-foreground">{tx.id}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-xl gap-1.5 text-xs"
+                onClick={() => setEditOpen(true)}
+              >
+                <Pencil className="size-3.5" />
+                Edit Sale
+              </Button>
+
               {hasDue && (
                 <Button
                   size="sm"
@@ -625,6 +745,11 @@ export function SaleDetailDialog({ transaction, onClose }: SaleDetailDialogProps
       </Dialog>
 
       {/* Sub-Dialogs triggered from SaleDetailDialog */}
+      <EditSaleDialog
+        transaction={tx}
+        open={editOpen}
+        onOpenChange={setEditOpen}
+      />
       <CollectDueDialog
         transaction={tx}
         open={collectOpen}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { Check, Layers, Megaphone, Package, Plus, Search, ShoppingBag, Trash2, X } from "lucide-react";
+import { Calendar, Check, Layers, Megaphone, Package, Plus, Search, ShoppingBag, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -31,6 +31,7 @@ export function SellPhoneDialog({
   const [form, setForm] = useState({
     customer_name: "",
     customer_phone: "",
+    customer_address: "",
     sold_price: "",
     payment_status: "Paid" as PaymentStatus,
     notes: "",
@@ -47,6 +48,7 @@ export function SellPhoneDialog({
   const [paidAmountInput, setPaidAmountInput] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("Cash");
   const [memoNo, setMemoNo] = useState("");
+  const [saleDate, setSaleDate] = useState(() => new Date().toISOString().slice(0, 10));
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const activeCampaigns = (state.campaigns ?? []).filter(
@@ -60,6 +62,7 @@ export function SellPhoneDialog({
       setForm({
         customer_name: "",
         customer_phone: "",
+        customer_address: "",
         sold_price: defaultSold,
         payment_status: "Paid",
         notes: "",
@@ -67,6 +70,7 @@ export function SellPhoneDialog({
       setPaidAmountInput(defaultSold);
       setPaymentMethod("Cash");
       setMemoNo("");
+      setSaleDate(new Date().toISOString().slice(0, 10));
       setCampaignId(phone.campaign_id || "");
       setBundledAccessories([]);
       setIsBatchPickerOpen(false);
@@ -80,7 +84,12 @@ export function SellPhoneDialog({
     setCustomerId(id);
     const c = state.customers?.find((cus) => cus.id === id);
     if (c) {
-      setForm((f) => ({ ...f, customer_name: c.name, customer_phone: c.phone }));
+      setForm((f) => ({
+        ...f,
+        customer_name: c.name,
+        customer_phone: c.phone,
+        customer_address: c.address || "",
+      }));
     }
   };
 
@@ -290,7 +299,7 @@ export function SellPhoneDialog({
         finalCusId = addCustomer({
           name: form.customer_name.trim(),
           phone: form.customer_phone.trim(),
-          address: "",
+          address: form.customer_address.trim(),
           nid_number: "",
           notes: "Auto-registered during phone sale",
         });
@@ -302,6 +311,7 @@ export function SellPhoneDialog({
       type: "Sale",
       customer_name: form.customer_name.trim(),
       customer_phone: form.customer_phone.trim(),
+      customer_address: form.customer_address.trim() || null,
       customer_id: finalCusId,
       amount: phonePrice,
       payment_status: computedPaymentStatus,
@@ -310,6 +320,7 @@ export function SellPhoneDialog({
       due_amount: liveDue,
       campaign_id: campaignId || null,
       memo_no: memoNo.trim() || null,
+      date: saleDate,
       notes: form.notes.trim(),
       ...(bundledAccessories.length > 0 ? { accessories: bundledAccessories } : {}),
     });
@@ -410,10 +421,61 @@ export function SellPhoneDialog({
                   className="mt-1 rounded-xl"
                 />
               </div>
+
+              <div className="sm:col-span-2">
+                <Label htmlFor="spd_customer_address" className="text-xs font-medium">
+                  Customer Address
+                </Label>
+                <Input
+                  id="spd_customer_address"
+                  value={form.customer_address}
+                  onChange={(e) => set("customer_address", e.target.value)}
+                  placeholder="e.g. Goalchamot, Faridpur / Thana, District"
+                  className="mt-1 rounded-xl"
+                />
+              </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="spd_sale_date" className="text-xs font-medium flex items-center gap-1">
+                  <Calendar className="size-3 text-primary" />
+                  Sale Date <span className="text-destructive">*</span>
+                </Label>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setSaleDate(todayStr)}
+                    className={`text-[10px] font-semibold transition-colors ${saleDate === todayStr ? "text-primary font-bold underline" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    Today
+                  </button>
+                  <span className="text-[10px] text-muted-foreground">·</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const y = new Date();
+                      y.setDate(y.getDate() - 1);
+                      setSaleDate(y.toISOString().slice(0, 10));
+                    }}
+                    className={`text-[10px] font-semibold transition-colors ${saleDate !== todayStr ? "text-primary font-bold underline" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    Yesterday
+                  </button>
+                </div>
+              </div>
+              <Input
+                id="spd_sale_date"
+                type="date"
+                required
+                value={saleDate}
+                onChange={(e) => setSaleDate(e.target.value)}
+                className="mt-1 rounded-xl"
+              />
+            </div>
+
             <div>
               <Label htmlFor="spd_sold_price" className="text-xs font-medium">
                 Phone Sold Price (<TakaSign />) <span className="text-destructive">*</span>

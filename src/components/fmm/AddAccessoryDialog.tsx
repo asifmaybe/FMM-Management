@@ -289,7 +289,7 @@ export function AddAccessoryDialog({
                   className="mt-1 h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                 >
                   <option value="">None / Open Market</option>
-                  {(state.suppliers ?? []).map((s) => (
+                  {(state.suppliers ?? []).filter((s) => s.supplier_type === "Accessory").map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name} ({s.contact})
                     </option>

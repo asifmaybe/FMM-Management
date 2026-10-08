@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { StatusBadge } from "@/components/fmm/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { daysInStock, formatBatteryHealth, supplierName, useFmm } from "@/lib/fmm-store";
+import { formatStorageRam } from "@/lib/utils";
 import { Taka, TakaSign } from "@/components/fmm/Taka";
 import { SellPhoneDialog } from "@/components/fmm/SellPhoneDialog";
 import { InspectTradeInDialog } from "@/components/fmm/InspectTradeInDialog";
@@ -65,8 +66,10 @@ export function PhoneDetailDialog({ phoneId, onClose }: { phoneId: string | null
                     </div>
                   ) : null}
                 </div>
-                <Info label="Specs (Storage / RAM)" value={phone.storage_ram || "—"} />
+                <Info label="Specs (Storage)" value={formatStorageRam(phone.brand, phone.storage_ram)} />
                 <Info label="Battery Health" value={formatBatteryHealth(phone.battery_health)} />
+                <Info label="Cycle Count" value={phone.cycle_count != null ? `${phone.cycle_count} cycles` : "—"} />
+                <Info label="Serial Number" value={phone.serial_number ? <span className="font-mono">{phone.serial_number}</span> : "—"} />
                 <Info label="Condition" value={phone.condition} />
                 <Info
                   label="Packaging / Box"
@@ -95,6 +98,18 @@ export function PhoneDetailDialog({ phoneId, onClose }: { phoneId: string | null
                     )
                   }
                 />
+                {phone.status === "Sold" || phone.status === "Exchange" ? (
+                  <Info
+                    label="Sold Date"
+                    value={
+                      phone.sold_date
+                        ? new Date(phone.sold_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                        : txs[0]?.date
+                        ? new Date(txs[0].date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                        : "—"
+                    }
+                  />
+                ) : null}
                 <Info label="Days in stock" value={String(daysInStock(phone.created_at))} />
                 <Info label="Added" value={new Date(phone.created_at).toLocaleString()} />
               </div>

@@ -1,13 +1,13 @@
-import { useState, useEffect, useRef, type ChangeEvent } from "react";
+import { useState, useEffect, useMemo, useRef, type ChangeEvent } from "react";
 import { toast } from "sonner";
-import { ArrowLeftRight, Box, Camera, Check, FileText, Plus, ShieldCheck, Smartphone, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowLeftRight, Box, Camera, Check, FileText, Plus, ShieldCheck, Smartphone, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field } from "@/components/fmm/AddPhoneDialog";
-import { normalizeBatteryHealth, useFmm } from "@/lib/fmm-store";
+import { normalizeBatteryHealth, normalizeCycleCount, useFmm } from "@/lib/fmm-store";
 import { type PhoneCondition, type StoredFile, PHONE_BRAND_OPTIONS, PHONE_RAM_OPTIONS, PHONE_ROM_OPTIONS } from "@/lib/fmm-types";
 import { Taka, TakaSign } from "./Taka";
 import { StatusBadge } from "./StatusBadge";
@@ -63,6 +63,8 @@ export function ExchangePhoneDialog({
   const [inRam, setInRam] = useState("8GB");
   const [inCondition, setInCondition] = useState<PhoneCondition>("Used - Good");
   const [inBatteryHealth, setInBatteryHealth] = useState("");
+  const [inSerialNumber, setInSerialNumber] = useState("");
+  const [inCycleCount, setInCycleCount] = useState("");
   const [inValuation, setInValuation] = useState("");
   const [inWithBox, setInWithBox] = useState(false);
   const [damage, setDamage] = useState({
@@ -98,6 +100,8 @@ export function ExchangePhoneDialog({
     setInRam("8GB");
     setInCondition("Used - Good");
     setInBatteryHealth("");
+    setInSerialNumber("");
+    setInCycleCount("");
     setInValuation("");
     setInWithBox(false);
     setDamage({ screen_scratch: false, body_dent: false, battery_issue: false, camera_blurry: false });
@@ -137,6 +141,36 @@ export function ExchangePhoneDialog({
     }
   };
 
+  const cleanImei = (val: string) => val.replace(/[\s-]/g, "").toLowerCase();
+
+  const duplicatePhone = useMemo(() => {
+    const target = cleanImei(inImei);
+    if (!target) return null;
+    return (
+      (state.phones ?? []).find(
+        (p) =>
+          cleanImei(p.imei) === target ||
+          (p.imei_secondary && cleanImei(p.imei_secondary) === target),
+      ) || null
+    );
+  }, [inImei, state.phones]);
+
+  const duplicateSecondaryPhone = useMemo(() => {
+    const target = cleanImei(inImeiSecondary);
+    if (!target) return null;
+    const primTarget = cleanImei(inImei);
+    if (primTarget && target === primTarget) {
+      return { isSelfConflict: true, brand: "", model: "", status: "" };
+    }
+    const match = (state.phones ?? []).find(
+      (p) =>
+        cleanImei(p.imei) === target ||
+        (p.imei_secondary && cleanImei(p.imei_secondary) === target),
+    );
+    if (match) return { isSelfConflict: false, brand: match.brand, model: match.model, status: match.status };
+    return null;
+  }, [inImei, inImeiSecondary, state.phones]);
+
   const validateStep = (currentStep: number) => {
     if (currentStep === 0) {
       if (!outgoingId || !selectedOutgoing) {
@@ -150,6 +184,18 @@ export function ExchangePhoneDialog({
     } else if (currentStep === 1) {
       if (!inBrand.trim() || !inModel.trim() || !inImei.trim()) {
         toast.error("Brand, Model, and IMEI are required for the trade-in phone.");
+        return false;
+      }
+      if (duplicatePhone) {
+        toast.error(`Trade-in IMEI "${inImei.trim()}" already exists in inventory (${duplicatePhone.brand} ${duplicatePhone.model}). Duplicate IMEIs are not allowed.`);
+        return false;
+      }
+      if (duplicateSecondaryPhone) {
+        toast.error(
+          duplicateSecondaryPhone.isSelfConflict
+            ? "Secondary IMEI cannot match Primary IMEI."
+            : `Trade-in secondary IMEI is already in use by ${duplicateSecondaryPhone.brand} ${duplicateSecondaryPhone.model}.`
+        );
         return false;
       }
       if (!inValuation || Number(inValuation) <= 0) {
@@ -172,6 +218,14 @@ export function ExchangePhoneDialog({
 
   const submitExchange = () => {
     if (!validateStep(0) || !validateStep(1)) return;
+    if (duplicatePhone) {
+      toast.error(`Trade-in IMEI already exists in inventory (${duplicatePhone.brand} ${duplicatePhone.model}).`);
+      return;
+    }
+    if (duplicateSecondaryPhone) {
+      toast.error("Secondary IMEI is invalid or already registered.");
+      return;
+    }
     if (!customerName.trim()) {
       toast.error("Customer full name is required.");
       return;
@@ -213,6 +267,8 @@ export function ExchangePhoneDialog({
         imei: inImei.trim(),
         imei_secondary: inImeiSecondary.trim() || null,
         battery_health: normalizeBatteryHealth(inBatteryHealth),
+        serial_number: inSerialNumber.trim() || null,
+        cycle_count: normalizeCycleCount(inCycleCount),
         brand: inBrand.trim(),
         model: inModel.trim(),
         storage_ram: [inRom.trim(), inRam.trim()].filter(Boolean).join(" / ") || "N/A",
@@ -479,10 +535,61 @@ export function ExchangePhoneDialog({
                   </select>
                 </Field>
                 <Field label="IMEI 1 *">
-                  <Input value={inImei} onChange={(e) => setInImei(e.target.value)} placeholder="15-digit primary IMEI" className="font-mono text-xs" />
+                  <Input
+                    value={inImei}
+                    onChange={(e) => setInImei(e.target.value)}
+                    placeholder="15-digit primary IMEI"
+                    className={`font-mono text-xs transition-colors ${
+                      duplicatePhone
+                        ? "border-destructive focus-visible:ring-destructive text-destructive bg-destructive/5 font-semibold"
+                        : ""
+                    }`}
+                  />
+                  {duplicatePhone && (
+                    <div className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive mt-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
+                      <AlertCircle className="size-4 shrink-0 mt-0.5 text-destructive" />
+                      <div className="space-y-0.5">
+                        <div className="font-semibold flex items-center gap-1.5">
+                          <span>Duplicate IMEI Detected</span>
+                          <span className="inline-flex items-center rounded-full bg-destructive/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                            Already Exists
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-foreground/85 leading-relaxed">
+                          This IMEI is already registered to <strong className="text-foreground font-semibold">{duplicatePhone.brand} {duplicatePhone.model}</strong> (Status: <span className="font-semibold underline decoration-destructive/50">{duplicatePhone.status}</span>). Duplicate IMEIs are not allowed.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </Field>
                 <Field label="Secondary IMEI (optional)">
-                  <Input value={inImeiSecondary} onChange={(e) => setInImeiSecondary(e.target.value)} placeholder="Optional 2nd IMEI" className="font-mono text-xs" />
+                  <Input
+                    value={inImeiSecondary}
+                    onChange={(e) => setInImeiSecondary(e.target.value)}
+                    placeholder="Optional 2nd IMEI"
+                    className={`font-mono text-xs transition-colors ${
+                      duplicateSecondaryPhone
+                        ? "border-destructive focus-visible:ring-destructive text-destructive bg-destructive/5 font-semibold"
+                        : ""
+                    }`}
+                  />
+                  {duplicateSecondaryPhone && (
+                    <div className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive mt-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
+                      <AlertCircle className="size-4 shrink-0 mt-0.5 text-destructive" />
+                      <div className="space-y-0.5">
+                        <div className="font-semibold text-destructive">
+                          {duplicateSecondaryPhone.isSelfConflict
+                            ? "Secondary IMEI cannot match Primary IMEI"
+                            : "Duplicate Secondary IMEI"}
+                        </div>
+                        <p className="text-[11px] text-foreground/85 leading-relaxed">
+                          {duplicateSecondaryPhone.isSelfConflict
+                            ? "Primary and secondary IMEI cannot be identical."
+                            : `This secondary IMEI is already in use by ${duplicateSecondaryPhone.brand} ${duplicateSecondaryPhone.model} (${duplicateSecondaryPhone.status}).`}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </Field>
                 <Field label="Battery Health (optional)">
                   <Input
@@ -493,6 +600,23 @@ export function ExchangePhoneDialog({
                       if (v) setInBatteryHealth(v);
                     }}
                     placeholder="e.g. 85%"
+                  />
+                </Field>
+                <Field label="Serial Number (optional)">
+                  <Input
+                    value={inSerialNumber}
+                    onChange={(e) => setInSerialNumber(e.target.value)}
+                    placeholder="e.g. F17..."
+                    className="font-mono text-xs"
+                  />
+                </Field>
+                <Field label="Cycle Count (optional)">
+                  <Input
+                    type="number"
+                    min="0"
+                    value={inCycleCount}
+                    onChange={(e) => setInCycleCount(e.target.value)}
+                    placeholder="e.g. 142"
                   />
                 </Field>
                 <Field label={<>Their Phone Valued At (<TakaSign />) *</>}>

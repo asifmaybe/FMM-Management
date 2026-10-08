@@ -154,11 +154,23 @@
     border-color: var(--color-border);
   }
 
+  html,
   body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    max-width: 100vw;
+    overflow: hidden;
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+  }
+
+  #root {
+    height: 100%;
+    max-width: 100vw;
+    overflow: hidden;
   }
 
   /* Thin elegant scrollbars across modern browsers */

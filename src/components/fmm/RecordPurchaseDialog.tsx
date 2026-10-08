@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useFmm } from "@/lib/fmm-store";
+import { useFmm, normalizeCycleCount } from "@/lib/fmm-store";
 import { type Phone, type PhoneCondition, type PurchaseItem, PHONE_BRAND_OPTIONS, PHONE_RAM_OPTIONS, PHONE_ROM_OPTIONS } from "@/lib/fmm-types";
 import { Taka, TakaSign } from "./Taka";
 
@@ -20,6 +20,8 @@ interface PhoneInputRow {
   purchase_price: string;
   selling_price: string;
   with_box?: boolean;
+  serial_number?: string;
+  cycle_count?: string;
 }
 
 const CONDITIONS: PhoneCondition[] = ["New", "Used - A", "Used - B", "Used - Good", "Refurbished"];
@@ -35,6 +37,9 @@ export function RecordPurchaseDialog({
 
   const [supplierId, setSupplierId] = useState(state.suppliers[0]?.id || "");
   const [type, setType] = useState<"Phone" | "Accessory">("Accessory");
+  const phoneSuppliers = state.suppliers.filter((s) => s.supplier_type === "Phone");
+  const accessorySuppliers = state.suppliers.filter((s) => s.supplier_type === "Accessory");
+  const activeSuppliers = type === "Phone" ? phoneSuppliers : accessorySuppliers;
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [campaignId, setCampaignId] = useState("");
   const [additionalCost, setAdditionalCost] = useState("0");
@@ -48,7 +53,7 @@ export function RecordPurchaseDialog({
 
   // Phone rows
   const [phoneRows, setPhoneRows] = useState<PhoneInputRow[]>([
-    { brand: "Apple", model: "iPhone 15", rom: "128GB", ram: "8GB", condition: "New", imei: "", purchase_price: "75000", selling_price: "85000", with_box: false },
+    { brand: "Apple", model: "iPhone 15", rom: "128GB", ram: "8GB", condition: "New", imei: "", purchase_price: "75000", selling_price: "85000", with_box: false, serial_number: "", cycle_count: "" },
   ]);
 
   const handleAddAccItem = () => {
@@ -76,7 +81,7 @@ export function RecordPurchaseDialog({
   const handleAddPhoneRow = () => {
     setPhoneRows((prev) => [
       ...prev,
-      { brand: "Apple", model: "iPhone 15", rom: "128GB", ram: "8GB", condition: "New", imei: "", purchase_price: "75000", selling_price: "85000", with_box: false },
+      { brand: "Apple", model: "iPhone 15", rom: "128GB", ram: "8GB", condition: "New", imei: "", purchase_price: "75000", selling_price: "85000", with_box: false, serial_number: "", cycle_count: "" },
     ]);
   };
 
@@ -105,6 +110,7 @@ export function RecordPurchaseDialog({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const isOwnStock = supplierId === "own_stock";
     if (!supplierId) {
       toast.error("Please select a supplier.");
       return;
@@ -156,15 +162,19 @@ export function RecordPurchaseDialog({
         model: r.model.trim(),
         imei: r.imei.trim(),
         imei_secondary: null,
-        storage_ram: [r.rom.trim(), r.ram.trim()].filter(Boolean).join(" / ") || "Standard",
+        storage_ram: r.brand.trim().toLowerCase() === "apple"
+          ? r.rom.trim() || "Standard"
+          : [r.rom.trim(), r.ram.trim()].filter(Boolean).join(" / ") || "Standard",
         condition: r.condition,
-        source_type: "Supplier Purchase",
-        supplier_id: supplierId,
+        source_type: isOwnStock ? "Own Stock" : "Supplier Purchase",
+        supplier_id: isOwnStock ? null : supplierId,
         customer_purchase_id: null,
         purchase_price: Number(r.purchase_price) || 0,
         selling_price: Number(r.selling_price) || null,
         status: "Available",
         battery_health: null,
+        serial_number: r.serial_number?.trim() || null,
+        cycle_count: normalizeCycleCount(r.cycle_count),
         condition_notes: "",
         warranty_repair_notes: "",
         campaign_id: campaignId || null,
@@ -180,11 +190,11 @@ export function RecordPurchaseDialog({
 
       // Single-owner procurement: addPhonesBatch creates phone inventory AND the single authoritative Purchase record
       addPhonesBatch(phonesToCreate, {
-        supplier_id: supplierId,
+        supplier_id: supplierId, // "own_stock" is handled specially in addPhonesBatch
         notes: notes.trim() || `Procurement of ${phonesToCreate.length} phone(s)`,
         campaign_id: campaignId || null,
         additional_cost: Number(additionalCost) || 0,
-        paid_amount: paid,
+        paid_amount: isOwnStock ? 0 : paid,
       });
 
       toast.success(`Procurement of ${phonesToCreate.length} phone(s) recorded successfully.`);
@@ -238,6 +248,7 @@ export function RecordPurchaseDialog({
           direction: "in",
           unit_price: u,
           date: isoDate,
+          skipPurchaseCreation: true,
           reason: `Supplier purchase batch (${state.suppliers.find((s) => s.id === supplierId)?.name || "Supplier"})`,
         });
       }
@@ -262,7 +273,7 @@ export function RecordPurchaseDialog({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="pur_sup" className="text-xs font-semibold">
-                  Supplier <span className="text-destructive">*</span>
+                  {type === "Phone" ? "Supplier / Source" : "Supplier"} <span className="text-destructive">*</span>
                 </Label>
                 <select
                   id="pur_sup"
@@ -272,7 +283,10 @@ export function RecordPurchaseDialog({
                   className="mt-1 h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                 >
                   <option value="">Select Supplier…</option>
-                  {(state.suppliers ?? []).map((s) => (
+                  {type === "Phone" && (
+                    <option value="own_stock">🏢 Own Stock (Self-funded Internal Inventory)</option>
+                  )}
+                {activeSuppliers.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name} ({s.contact || "No contact"})
                     </option>
@@ -433,18 +447,20 @@ export function RecordPurchaseDialog({
                             ))}
                           </select>
                         </div>
-                        <div>
-                          <Label className="text-[10px] text-muted-foreground">RAM</Label>
-                          <select
-                            value={row.ram}
-                            onChange={(e) => handlePhoneRowChange(idx, "ram", e.target.value)}
-                            className="h-7 w-full rounded-md border border-input bg-card px-2 text-xs font-medium mt-0.5"
-                          >
-                            {PHONE_RAM_OPTIONS.map((opt) => (
-                              <option key={opt} value={opt}>{opt}</option>
-                            ))}
-                          </select>
-                        </div>
+                        {row.brand !== "Apple" && (
+                          <div>
+                            <Label className="text-[10px] text-muted-foreground">RAM</Label>
+                            <select
+                              value={row.ram}
+                              onChange={(e) => handlePhoneRowChange(idx, "ram", e.target.value)}
+                              className="h-7 w-full rounded-md border border-input bg-card px-2 text-xs font-medium mt-0.5"
+                            >
+                              {PHONE_RAM_OPTIONS.map((opt) => (
+                                <option key={opt} value={opt}>{opt}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                         <div>
                           <Label className="text-[10px] text-muted-foreground">Purchase Cost (<TakaSign />)</Label>
                           <Input
@@ -463,6 +479,28 @@ export function RecordPurchaseDialog({
                             value={row.selling_price}
                             onChange={(e) => handlePhoneRowChange(idx, "selling_price", e.target.value)}
                             className="h-7 text-xs mt-0.5 text-success font-semibold"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <div>
+                          <Label className="text-[10px] text-muted-foreground">Serial Number (optional)</Label>
+                          <Input
+                            value={row.serial_number ?? ""}
+                            onChange={(e) => handlePhoneRowChange(idx, "serial_number", e.target.value)}
+                            placeholder="e.g. F17..."
+                            className="h-7 text-xs font-mono mt-0.5"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[10px] text-muted-foreground">Cycle Count (optional)</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            value={row.cycle_count ?? ""}
+                            onChange={(e) => handlePhoneRowChange(idx, "cycle_count", e.target.value)}
+                            placeholder="e.g. 142"
+                            className="h-7 text-xs mt-0.5"
                           />
                         </div>
                       </div>

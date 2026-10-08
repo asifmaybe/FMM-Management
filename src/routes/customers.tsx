@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Smartphone,
   Users,
+  MapPin,
   X,
 } from "lucide-react";
 import { useState, useMemo } from "react";
@@ -257,7 +258,18 @@ function CustomersPage() {
                       ) : null}
                     </div>
                   </td>
-                  <td className="px-5 py-4 text-muted-foreground text-xs">{customer.address || "—"}</td>
+                  <td className="px-5 py-4 text-muted-foreground text-xs">
+                    {customer.address ? (
+                      <span className="flex items-center gap-1.5 text-foreground/80">
+                        <MapPin className="size-3 text-muted-foreground shrink-0" />
+                        <span className="truncate max-w-[180px]" title={customer.address}>
+                          {customer.address}
+                        </span>
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                   <td className="px-5 py-4 text-center">
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-secondary text-foreground">
                       {transactionsCount} orders {salesToFMMCount > 0 ? `· +${salesToFMMCount} intake` : ""}
@@ -361,10 +373,23 @@ function CustomersPage() {
                 View in Sales
               </Link>
             </SheetTitle>
-            <div className="flex flex-wrap gap-3 text-xs text-muted-foreground mt-1">
-              <span>Phone: <strong className="text-foreground">{activeCustomerDetails?.customer.phone}</strong></span>
-              {activeCustomerDetails?.customer.nid_number ? <span>NID: <strong className="text-foreground">{activeCustomerDetails?.customer.nid_number}</strong></span> : null}
-              {activeCustomerDetails?.customer.address ? <span>Address: <strong className="text-foreground">{activeCustomerDetails?.customer.address}</strong></span> : null}
+            <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground mt-1.5">
+              <span className="flex items-center gap-1">
+                <Phone className="size-3 text-muted-foreground" />
+                Phone: <strong className="text-foreground font-mono">{activeCustomerDetails?.customer.phone}</strong>
+              </span>
+              {activeCustomerDetails?.customer.nid_number ? (
+                <span className="flex items-center gap-1">
+                  <ShieldCheck className="size-3 text-muted-foreground" />
+                  NID: <strong className="text-foreground font-mono">{activeCustomerDetails?.customer.nid_number}</strong>
+                </span>
+              ) : null}
+              {activeCustomerDetails?.customer.address ? (
+                <span className="flex items-center gap-1">
+                  <MapPin className="size-3 text-muted-foreground" />
+                  Address: <strong className="text-foreground">{activeCustomerDetails?.customer.address}</strong>
+                </span>
+              ) : null}
             </div>
           </SheetHeader>
 

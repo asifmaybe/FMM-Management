@@ -31,6 +31,7 @@ import {
   parseBackupFileForPreview,
   type BackupPreviewInfo,
 } from "@/lib/fmm-backup";
+import { IS_DEV } from "@/lib/fmm-db";
 import { useFmm } from "@/lib/fmm-store";
 
 export const Route = createFileRoute("/settings")({
@@ -46,7 +47,7 @@ export const Route = createFileRoute("/settings")({
 });
 
 function SettingsPage() {
-  const { state, updateSettings, runBackup, restoreBackup, resetData } = useFmm();
+  const { state, updateSettings, runBackup, restoreBackup, resetData, resetToDemoData } = useFmm();
   const fileRef = useRef<HTMLInputElement>(null);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [status, setStatus] = useState<{ ok: boolean; message: string; verified?: boolean; timestamp?: string } | null>(null);
@@ -481,7 +482,38 @@ function SettingsPage() {
           </div>
         </section>
 
-        {/* 5. DANGER ZONE */}
+        {/* 5. DEV SERVER DEMO MODE (Isolated Environment) */}
+        {IS_DEV && (
+          <section className="rounded-xl border border-primary/30 bg-primary/5 p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
+                  <Database className="size-5 text-primary" /> Dev Server Demo Mode
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground max-w-2xl">
+                  You are currently on the local dev server. Demo records are saved in an isolated database (<code className="font-mono text-xs font-semibold text-primary">fmm-dev-db</code>). Your original production database (<code className="font-mono text-xs">fmm.db</code>) is safe and unaffected.
+                </p>
+              </div>
+              <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 whitespace-nowrap flex items-center gap-1.5">
+                <ShieldCheck className="size-3.5" /> Production Safe
+              </span>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Button
+                variant="outline"
+                className="rounded-xl border-primary/30 hover:bg-primary/10"
+                onClick={async () => {
+                  await resetToDemoData();
+                  toast.success("Demo dataset reloaded with fresh sample records!");
+                }}
+              >
+                <RotateCcw className="size-4 mr-2" /> Reload Demo Dataset
+              </Button>
+            </div>
+          </section>
+        )}
+
+        {/* 6. DANGER ZONE */}
         <section className="rounded-xl border border-destructive/30 bg-card p-6">
           <h3 className="text-lg font-bold text-destructive flex items-center gap-2">
             <ShieldAlert className="size-5 text-destructive" /> Danger Zone

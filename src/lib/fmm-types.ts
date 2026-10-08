@@ -1,8 +1,10 @@
 export type SupplierStatus = "Active Partner" | "Pending Review";
+export type SupplierType = "Phone" | "Accessory";
 
 export interface Supplier {
   id: string;
   name: string;
+  supplier_type: SupplierType;
   status: SupplierStatus;
   contact: string;
   notes: string;
@@ -32,6 +34,8 @@ export interface Phone {
   id: string;
   imei: string;
   imei_secondary: string | null;
+  serial_number?: string | null;
+  cycle_count?: number | null;
   battery_health: string | null;
   brand: string;
   model: string;
@@ -41,8 +45,10 @@ export interface Phone {
   supplier_id: string | null;
   customer_purchase_id: string | null;
   purchase_price: number;
+  original_purchase_price?: number | null;
   selling_price: number | null;
   sold_price?: number | null;
+  sold_date?: string | null;
   status: PhoneStatus;
   condition_notes: string;
   damage_checklist: DamageChecklist;
@@ -186,7 +192,16 @@ export interface TransactionReturnInfo {
   reason: string;
   disposition: ReturnDisposition;
   supplier_id?: string | null;
+  supplier_refund_amount?: number | null;
   new_resale_price?: number | null;
+}
+
+export interface TransactionPaymentEntry {
+  id: string;
+  date: string;
+  amount: number;
+  payment_method?: string;
+  notes?: string;
 }
 
 export interface Transaction {
@@ -195,12 +210,14 @@ export interface Transaction {
   type: TransactionType;
   customer_name: string;
   customer_phone: string;
+  customer_address?: string | null;
   customer_id?: string | null;
   amount: number;
   payment_status: PaymentStatus;
   payment_method?: string; // Cash, bKash, Nagad, Bank
   paid_amount?: number;
   due_amount?: number;
+  payment_history?: TransactionPaymentEntry[];
   items?: SaleItem[];
   trade_in?: TransactionTradeIn | undefined;
   return_info?: TransactionReturnInfo | undefined;
@@ -356,6 +373,7 @@ export interface CustomerReturn {
   refund_amount: number;
   disposition?: ReturnDisposition;
   supplier_id?: string | null;
+  supplier_refund_amount?: number | null;
   new_resale_price?: number | null;
   notes: string;
   created_at: string;
@@ -395,6 +413,7 @@ export type AuditAction =
   | "Payment Collected"
   | "Bought from Customer"
   | "Supplier Payment"
+  | "Supplier Payment Undone"
   | "Accessory Added"
   | "Accessory Updated"
   | "Accessory Sold"

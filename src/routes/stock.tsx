@@ -11,6 +11,7 @@ import { EditPhoneDialog } from "@/components/fmm/EditPhoneDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { daysInStock, formatBatteryHealth, supplierName, useFmm } from "@/lib/fmm-store";
+import { formatStorageRam } from "@/lib/utils";
 import { Taka, TakaSign } from "@/components/fmm/Taka";
 import type { Phone } from "@/lib/fmm-types";
 
@@ -56,7 +57,7 @@ function StockPage() {
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     const filtered = state.phones.filter((p) => {
-      const matchQ = !q || [p.imei, p.imei_secondary ?? "", p.brand, p.model].some((v) => v.toLowerCase().includes(q));
+      const matchQ = !q || [p.imei, p.imei_secondary ?? "", p.serial_number ?? "", p.brand, p.model].some((v) => v.toLowerCase().includes(q));
       const matchS =
         status === "All"
           ? true
@@ -227,7 +228,7 @@ function StockPage() {
             </thead>
             <tbody className="divide-y divide-border">
               {rows.map((p) => {
-                const specs = p.storage_ram || "—";
+                const specs = formatStorageRam(p.brand, p.storage_ram);
                 return (
                 <tr key={p.id} className="cursor-pointer hover:bg-secondary/40 transition-colors" onClick={() => setDetailId(p.id)}>
                   <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">
@@ -237,6 +238,9 @@ function StockPage() {
                     <div>{p.imei}</div>
                     {p.imei_secondary ? (
                       <div className="text-xs text-muted-foreground">IMEI 2: {p.imei_secondary}</div>
+                    ) : null}
+                    {p.serial_number ? (
+                      <div className="text-[11px] text-muted-foreground font-mono">SN: {p.serial_number}</div>
                     ) : null}
                   </td>
                   <td className="px-3 py-2.5 font-semibold min-w-[210px] leading-snug">
@@ -250,7 +254,12 @@ function StockPage() {
                     </div>
                   </td>
                   <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">{specs}</td>
-                  <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">{formatBatteryHealth(p.battery_health)}</td>
+                  <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">
+                    <div>{formatBatteryHealth(p.battery_health)}</div>
+                    {p.cycle_count != null ? (
+                      <div className="text-[11px] text-muted-foreground/80">{p.cycle_count} cycles</div>
+                    ) : null}
+                  </td>
                   <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">{supplierName(state, p)}</td>
                   <td className="px-3 py-2.5 text-right whitespace-nowrap font-medium">
                     {p.selling_price ? <Taka value={p.selling_price} /> : "—"}

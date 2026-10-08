@@ -100,6 +100,18 @@ export function InspectTradeInDialog({ phone, open, onOpenChange }: InspectTrade
               <span className="text-muted-foreground">Trade-In Valuation:</span>
               <p className="font-semibold text-foreground"><Taka value={phone.purchase_price || 0} /></p>
             </div>
+            {phone.serial_number ? (
+              <div>
+                <span className="text-muted-foreground">Serial Number:</span>
+                <p className="font-mono text-foreground">{phone.serial_number}</p>
+              </div>
+            ) : null}
+            {phone.cycle_count != null ? (
+              <div>
+                <span className="text-muted-foreground">Cycle Count:</span>
+                <p className="font-medium text-foreground">{phone.cycle_count} cycles</p>
+              </div>
+            ) : null}
           </div>
         </div>
 

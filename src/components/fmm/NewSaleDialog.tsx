@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { toast } from "sonner";
-import { Layers, Plus, Receipt, Smartphone, Trash2 } from "lucide-react";
+import { Calendar, Layers, Plus, Receipt, Smartphone, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -21,11 +21,13 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   const [customerId, setCustomerId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [customerAddress, setCustomerAddress] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("Paid");
   const [paidAmountInput, setPaidAmountInput] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("Cash");
   const [campaignId, setCampaignId] = useState("");
   const [notes, setNotes] = useState("");
+  const [saleDate, setSaleDate] = useState(() => new Date().toISOString().slice(0, 10));
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const activeCampaigns = (state.campaigns ?? []).filter(
@@ -40,11 +42,13 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
       setCustomerId("");
       setCustomerName("");
       setCustomerPhone("");
+      setCustomerAddress("");
       setPaymentStatus("Paid");
       setPaidAmountInput("");
       setPaymentMethod("Cash");
       setCampaignId("");
       setNotes("");
+      setSaleDate(new Date().toISOString().slice(0, 10));
     }
   }, [open]);
 
@@ -56,6 +60,7 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
     if (c) {
       setCustomerName(c.name);
       setCustomerPhone(c.phone);
+      setCustomerAddress(c.address || "");
     }
   };
 
@@ -126,7 +131,7 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         finalCusId = addCustomer({
           name: customerName.trim(),
           phone: customerPhone.trim(),
-          address: "",
+          address: customerAddress.trim(),
           nid_number: "",
           notes: "Created during sale",
         });
@@ -147,6 +152,7 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         type: "Sale",
         customer_name: customerName.trim(),
         customer_phone: customerPhone.trim(),
+        customer_address: customerAddress.trim() || null,
         customer_id: finalCusId,
         amount: phonePrice,
         payment_status: computedPaymentStatus,
@@ -154,6 +160,7 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         due_amount: liveDue,
         payment_method: paymentMethod,
         campaign_id: campaignId || null,
+        date: saleDate,
         notes: notes.trim(),
       });
       toast.success("Phone sale recorded.");
@@ -173,8 +180,11 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         customer_phone: customerPhone.trim(),
         customer_id: finalCusId,
         payment_status: computedPaymentStatus,
+        paid_amount: livePaid,
+        due_amount: liveDue,
         payment_method: paymentMethod,
         campaign_id: campaignId || null,
+        date: saleDate,
         notes: notes.trim(),
       });
       toast.success("Accessory sale recorded.");
@@ -189,6 +199,7 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         type: "Sale",
         customer_name: customerName.trim(),
         customer_phone: customerPhone.trim(),
+        customer_address: customerAddress.trim() || null,
         customer_id: finalCusId,
         amount: phonePrice,
         payment_status: computedPaymentStatus,
@@ -196,6 +207,7 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         due_amount: liveDue,
         payment_method: paymentMethod,
         campaign_id: campaignId || null,
+        date: saleDate,
         notes: notes.trim(),
         accessories: accItems.map((it) => ({
           accessory_id: it.accessory_id,
@@ -430,11 +442,58 @@ export function NewSaleDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                     className="mt-1"
                   />
                 </div>
+                <div className="sm:col-span-2">
+                  <Label htmlFor="cus_addr" className="text-xs text-muted-foreground">Customer Address</Label>
+                  <Input
+                    id="cus_addr"
+                    value={customerAddress}
+                    onChange={(e) => setCustomerAddress(e.target.value)}
+                    placeholder="e.g. Goalchamot, Faridpur / Thana, District"
+                    className="mt-1"
+                  />
+                </div>
               </div>
             </div>
 
             {/* Payment & Campaign Details */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold flex items-center gap-1">
+                    <Calendar className="size-3 text-primary" />
+                    Sale Date
+                  </Label>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setSaleDate(todayStr)}
+                      className={`text-[10px] font-semibold transition-colors ${saleDate === todayStr ? "text-primary font-bold underline" : "text-muted-foreground hover:text-foreground"}`}
+                    >
+                      Today
+                    </button>
+                    <span className="text-[10px] text-muted-foreground">·</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const y = new Date();
+                        y.setDate(y.getDate() - 1);
+                        setSaleDate(y.toISOString().slice(0, 10));
+                      }}
+                      className={`text-[10px] font-semibold transition-colors ${saleDate !== todayStr ? "text-primary font-bold underline" : "text-muted-foreground hover:text-foreground"}`}
+                    >
+                      Yesterday
+                    </button>
+                  </div>
+                </div>
+                <Input
+                  type="date"
+                  required
+                  value={saleDate}
+                  onChange={(e) => setSaleDate(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+
               <div>
                 <Label className="text-xs font-semibold">Payment Status</Label>
                 <select

@@ -1,12 +1,18 @@
 import type { FmmState } from "./fmm-types";
+import { generateDemoState } from "./fmm-demo-data";
 
-const DB_NAME = "fmm-local";
+export const IS_DEV = import.meta.env.DEV;
+
+// In dev server, store data in an isolated database "fmm-dev-db"
+// This guarantees that the original production data in "fmm-local" and Electron SQLite ("fmm.db")
+// are completely unaffected and isolated.
+export const DB_NAME = IS_DEV ? "fmm-dev-db" : "fmm-local";
 const STORE = "state";
 const KEY = "app-state";
 
-function openDb(): Promise<IDBDatabase> {
+function openDb(name: string = DB_NAME): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
+    const req = indexedDB.open(name, 1);
     req.onupgradeneeded = () => {
       if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE);
     };
@@ -15,9 +21,9 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-async function loadFromIndexedDb(): Promise<FmmState | null> {
+async function loadFromIndexedDb(name: string = DB_NAME): Promise<FmmState | null> {
   try {
-    const db = await openDb();
+    const db = await openDb(name);
     return new Promise((resolve, reject) => {
       const req = db.transaction(STORE, "readonly").objectStore(STORE).get(KEY);
       req.onsuccess = () => resolve((req.result as FmmState) ?? null);
@@ -28,9 +34,9 @@ async function loadFromIndexedDb(): Promise<FmmState | null> {
   }
 }
 
-async function saveToIndexedDb(state: FmmState): Promise<void> {
+async function saveToIndexedDb(state: FmmState, name: string = DB_NAME): Promise<void> {
   try {
-    const db = await openDb();
+    const db = await openDb(name);
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE, "readwrite");
       tx.objectStore(STORE).put(state, KEY);
@@ -49,8 +55,9 @@ export async function loadState(): Promise<FmmState | null> {
       const electronState = await window.api.loadState();
       if (electronState) return electronState;
 
-      // On first Electron run: check if legacy state exists in IndexedDB and migrate to SQLite
-      const legacyState = await loadFromIndexedDb();
+      // On first Electron run: check if legacy state exists in production IndexedDB and migrate to SQLite
+      // NEVER migrate dev demo database!
+      const legacyState = await loadFromIndexedDb("fmm-local");
       if (legacyState) {
         console.log("[FMM DB] Migrating legacy browser IndexedDB state to Electron SQLite...");
         await window.api.saveState(legacyState);
@@ -62,8 +69,19 @@ export async function loadState(): Promise<FmmState | null> {
     }
   }
 
-  // Browser / Lovable fallback
-  return loadFromIndexedDb();
+  // Browser / Dev server fallback
+  const loaded = await loadFromIndexedDb(DB_NAME);
+  if (loaded) return loaded;
+
+  // In dev environment, automatically seed isolated database with rich demo data
+  if (IS_DEV) {
+    console.log("[FMM DB] Dev server detected — seeding isolated demo database (fmm-dev-db)...");
+    const demo = generateDemoState();
+    await saveToIndexedDb(demo, DB_NAME);
+    return demo;
+  }
+
+  return null;
 }
 
 export async function saveState(state: FmmState): Promise<void> {
@@ -77,8 +95,16 @@ export async function saveState(state: FmmState): Promise<void> {
     }
   }
 
-  // Browser / Lovable fallback
-  return saveToIndexedDb(state);
+  // Browser / Lovable / Dev server fallback
+  return saveToIndexedDb(state, DB_NAME);
+}
+
+export async function reloadDemoState(): Promise<FmmState> {
+  const demo = generateDemoState();
+  if (IS_DEV) {
+    await saveToIndexedDb(demo, "fmm-dev-db");
+  }
+  return demo;
 }
 
 export function uid(prefix: string): string {
@@ -111,4 +137,5 @@ export function emptyState(): FmmState {
     },
   };
 }
+
 

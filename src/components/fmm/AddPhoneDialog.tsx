@@ -1,37 +1,21 @@
-import { useState, useEffect, type ChangeEvent } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { toast } from "sonner";
-import { Box, Camera, Check, FileText, Plus, ShieldCheck, Smartphone, Trash2, User } from "lucide-react";
+import { AlertCircle, Box, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { normalizeBatteryHealth, useFmm } from "@/lib/fmm-store";
-import { type PhoneCondition, type StoredFile, PHONE_BRAND_OPTIONS, PHONE_RAM_OPTIONS, PHONE_ROM_OPTIONS } from "@/lib/fmm-types";
+import { normalizeBatteryHealth, normalizeCycleCount, useFmm } from "@/lib/fmm-store";
+import { type PhoneCondition, PHONE_BRAND_OPTIONS, PHONE_RAM_OPTIONS, PHONE_ROM_OPTIONS } from "@/lib/fmm-types";
 import { TakaSign } from "@/components/fmm/Taka";
-import { processStoredFile, isImageDocument } from "@/lib/fmm-file";
 
 const conditions: PhoneCondition[] = ["Used - Good", "Used - A", "Used - B", "New", "Refurbished"];
 
-const customerSteps = ["Customer Info", "Identity Verification", "Phone Details & Payout"];
-
-const damageItems = [
-  { key: "screen_scratch", label: "Screen Scratch" },
-  { key: "body_dent", label: "Body Dent" },
-  { key: "battery_issue", label: "Battery Issue" },
-  { key: "camera_blurry", label: "Camera Blurry" },
-] as const;
-
-const readFile = processStoredFile;
-
 export function AddPhoneDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
-  const { addPhone, saveCustomerPurchase } = useFmm();
+  const { state, addPhone } = useFmm();
 
-  // Mode: "customer" (Buy from Customer) vs "own_stock" (Own Shop Stock)
-  const [sourceMode, setSourceMode] = useState<"customer" | "own_stock">("customer");
-  const [customerStep, setCustomerStep] = useState(0);
-
-  // Common Phone Fields
+  // Phone Fields
   const [phone, setPhone] = useState({
     brand: "Apple",
     model: "",
@@ -40,6 +24,8 @@ export function AddPhoneDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     condition: "Used - Good" as PhoneCondition,
     imei: "",
     imei_secondary: "",
+    serial_number: "",
+    cycle_count: "",
     battery_health: "",
     purchase_price: "",
     selling_price: "",
@@ -47,26 +33,7 @@ export function AddPhoneDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     with_box: false,
   });
 
-  // Customer Info & Documents
-  const [customer, setCustomer] = useState({
-    name: "",
-    phone: "",
-    address: "",
-    nid: "",
-  });
-  const [nidFront, setNidFront] = useState<StoredFile | null>(null);
-  const [nidBack, setNidBack] = useState<StoredFile | null>(null);
-  const [docs, setDocs] = useState<StoredFile[]>([]);
-  const [photos, setPhotos] = useState<StoredFile[]>([]);
-  const [damage, setDamage] = useState({
-    screen_scratch: false,
-    body_dent: false,
-    battery_issue: false,
-    camera_blurry: false,
-  });
-
   const reset = () => {
-    setCustomerStep(0);
     setPhone({
       brand: "Apple",
       model: "",
@@ -75,45 +42,86 @@ export function AddPhoneDialog({ open, onOpenChange }: { open: boolean; onOpenCh
       condition: "Used - Good",
       imei: "",
       imei_secondary: "",
+      serial_number: "",
+      cycle_count: "",
       battery_health: "",
       purchase_price: "",
       selling_price: "",
       condition_notes: "",
       with_box: false,
     });
-    setCustomer({ name: "", phone: "", address: "", nid: "" });
-    setNidFront(null);
-    setNidBack(null);
-    setDocs([]);
-    setPhotos([]);
-    setDamage({ screen_scratch: false, body_dent: false, battery_issue: false, camera_blurry: false });
   };
 
   useEffect(() => {
     if (open) reset();
   }, [open]);
 
-  const pickFile = (setter: (f: StoredFile) => void) => async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) setter(await readFile(file));
-  };
+  const isApple = phone.brand === "Apple";
 
   const getFormattedStorageRam = () => {
     const rom = phone.rom.trim();
     const ram = phone.ram.trim();
+    if (isApple) return rom || "N/A";
     if (rom && ram) return `${rom} / ${ram}`;
     return rom || ram || "N/A";
   };
 
-  const handleOwnStockSubmit = () => {
+  // Duplicate IMEI Detection
+  const cleanImei = (val: string) => val.replace(/[\s-]/g, "").toLowerCase();
+
+  const duplicatePhone = useMemo(() => {
+    const target = cleanImei(phone.imei);
+    if (!target) return null;
+    return (
+      (state.phones ?? []).find(
+        (p) =>
+          cleanImei(p.imei) === target ||
+          (p.imei_secondary && cleanImei(p.imei_secondary) === target),
+      ) || null
+    );
+  }, [phone.imei, state.phones]);
+
+  const duplicateSecondaryPhone = useMemo(() => {
+    const target = cleanImei(phone.imei_secondary);
+    if (!target) return null;
+    const primTarget = cleanImei(phone.imei);
+    if (primTarget && target === primTarget) {
+      return { isSelfConflict: true, brand: "", model: "", status: "" };
+    }
+    const match = (state.phones ?? []).find(
+      (p) =>
+        cleanImei(p.imei) === target ||
+        (p.imei_secondary && cleanImei(p.imei_secondary) === target),
+    );
+    if (match) return { isSelfConflict: false, brand: match.brand, model: match.model, status: match.status };
+    return null;
+  }, [phone.imei, phone.imei_secondary, state.phones]);
+
+  const handleSubmit = () => {
     if (!phone.imei.trim() || !phone.brand.trim() || !phone.model.trim() || !phone.purchase_price) {
       toast.error("IMEI, brand, model, and purchase cost are required.");
+      return;
+    }
+
+    if (duplicatePhone) {
+      toast.error(`IMEI "${phone.imei.trim()}" already exists in inventory (${duplicatePhone.brand} ${duplicatePhone.model}). Duplicate IMEIs are not allowed.`);
+      return;
+    }
+
+    if (duplicateSecondaryPhone) {
+      toast.error(
+        duplicateSecondaryPhone.isSelfConflict
+          ? "Secondary IMEI cannot match Primary IMEI."
+          : `Secondary IMEI already in use by ${duplicateSecondaryPhone.brand} ${duplicateSecondaryPhone.model}.`
+      );
       return;
     }
 
     addPhone({
       imei: phone.imei.trim(),
       imei_secondary: phone.imei_secondary.trim() || null,
+      serial_number: phone.serial_number.trim() || null,
+      cycle_count: normalizeCycleCount(phone.cycle_count),
       battery_health: normalizeBatteryHealth(phone.battery_health),
       brand: phone.brand.trim(),
       model: phone.model.trim(),
@@ -126,56 +134,12 @@ export function AddPhoneDialog({ open, onOpenChange }: { open: boolean; onOpenCh
       selling_price: phone.selling_price ? Number(phone.selling_price) : null,
       status: "Available",
       condition_notes: phone.condition_notes.trim(),
-      damage_checklist: damage,
+      damage_checklist: { screen_scratch: false, body_dent: false, battery_issue: false, camera_blurry: false },
       warranty_repair_notes: "",
       with_box: phone.with_box,
     });
 
-    toast.success(`${phone.brand} ${phone.model} added to Own Stock.`);
-    onOpenChange(false);
-    reset();
-  };
-
-  const handleCustomerSubmit = () => {
-    if (!customer.name.trim()) {
-      toast.error("Customer full name is required.");
-      return;
-    }
-    if (!phone.model.trim() || !phone.imei.trim() || !phone.purchase_price) {
-      toast.error("Model, IMEI, and agreed purchase price are required.");
-      return;
-    }
-
-    saveCustomerPurchase(
-      {
-        customer_name: customer.name.trim(),
-        customer_phone: customer.phone.trim(),
-        customer_address: customer.address.trim(),
-        nid_number: customer.nid.trim(),
-        nid_front_image: nidFront,
-        nid_back_image: nidBack,
-        additional_documents: docs,
-        phone_photos: photos,
-        purchase_price: Number(phone.purchase_price),
-      },
-      {
-        imei: phone.imei.trim(),
-        imei_secondary: phone.imei_secondary.trim() || null,
-        battery_health: normalizeBatteryHealth(phone.battery_health),
-        brand: phone.brand.trim(),
-        model: phone.model.trim(),
-        storage_ram: getFormattedStorageRam(),
-        condition: phone.condition,
-        purchase_price: Number(phone.purchase_price),
-        selling_price: phone.selling_price ? Number(phone.selling_price) : null,
-        condition_notes: phone.condition_notes.trim(),
-        damage_checklist: damage,
-        warranty_repair_notes: "",
-        with_box: phone.with_box,
-      },
-    );
-
-    toast.success(`Bought ${phone.brand} ${phone.model} from ${customer.name}. Added to Stock & Customer Evidence.`);
+    toast.success(`${phone.brand} ${phone.model} added to Stock.`);
     onOpenChange(false);
     reset();
   };
@@ -190,376 +154,44 @@ export function AddPhoneDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               Add Phone to Inventory
             </DialogTitle>
           </div>
-
-          {/* Source Mode Toggle */}
-          <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-secondary/60 p-1">
-            <button
-              type="button"
-              onClick={() => setSourceMode("customer")}
-              className={`flex items-center justify-center gap-2 rounded-lg py-2 text-xs font-semibold transition-all ${
-                sourceMode === "customer"
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <User className="size-4 text-primary" />
-              Buy from Customer
-            </button>
-            <button
-              type="button"
-              onClick={() => setSourceMode("own_stock")}
-              className={`flex items-center justify-center gap-2 rounded-lg py-2 text-xs font-semibold transition-all ${
-                sourceMode === "own_stock"
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <Box className="size-4 text-primary" />
-              Own Stock
-            </button>
-          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            Enter device details and IMEI to record a new phone into stock.
+          </p>
         </DialogHeader>
 
         <div className="px-6 flex-1 overflow-y-auto py-4">
-          {/* ========================================================================= */}
-          {/* OPTION 1: BUY FROM CUSTOMER                                               */}
-          {/* ========================================================================= */}
-          {sourceMode === "customer" ? (
-            <div className="space-y-5">
-              {/* Stepper Header */}
-              <div className="flex flex-wrap items-center gap-4">
-                {customerSteps.map((label, i) => (
-                  <button
-                    key={label}
-                    type="button"
-                    onClick={() => setCustomerStep(i)}
-                    className="flex items-center gap-2 text-sm text-left cursor-pointer focus:outline-none"
-                  >
-                    <span
-                      className={`flex size-6 items-center justify-center rounded-full text-xs font-semibold ${
-                        i < customerStep
-                          ? "bg-success text-success-foreground"
-                          : i === customerStep
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-secondary text-muted-foreground"
-                      }`}
-                    >
-                      {i < customerStep ? <Check className="size-3.5" /> : i + 1}
-                    </span>
-                    <span className={i === customerStep ? "font-semibold text-foreground" : "text-muted-foreground"}>
-                      {label}
-                    </span>
-                  </button>
-                ))}
-              </div>
-
-              {/* Step 0: Customer Info */}
-              {customerStep === 0 ? (
-                <section className="rounded-xl border border-border bg-card p-6 space-y-4">
-                  <h3 className="text-lg font-bold">1. Customer Information</h3>
-                  <p className="text-xs text-muted-foreground -mt-2">
-                    Enter the seller's contact and identity information.
-                  </p>
-                  <div className="grid gap-4 sm:grid-cols-2 pt-2">
-                    <Field label="Customer Full Name *">
-                      <Input
-                        value={customer.name}
-                        onChange={(e) => setCustomer({ ...customer, name: e.target.value })}
-                        placeholder="e.g. Rahim Uddin"
-                      />
-                    </Field>
-                    <Field label="Phone Number">
-                      <Input
-                        value={customer.phone}
-                        onChange={(e) => setCustomer({ ...customer, phone: e.target.value })}
-                        placeholder="01XXX-XXXXXX"
-                      />
-                    </Field>
-                    <Field label="Address">
-                      <Input
-                        value={customer.address}
-                        onChange={(e) => setCustomer({ ...customer, address: e.target.value })}
-                        placeholder="Street address, Thana, District"
-                      />
-                    </Field>
-                    <Field label="NID Number">
-                      <Input
-                        value={customer.nid}
-                        onChange={(e) => setCustomer({ ...customer, nid: e.target.value })}
-                        placeholder="10 or 17 digit National ID"
-                        className="font-mono text-xs"
-                      />
-                    </Field>
-                  </div>
-                </section>
-              ) : null}
-
-              {/* Step 1: Identity Verification Documents */}
-              {customerStep === 1 ? (
-                <section className="rounded-xl border border-border bg-card p-6 space-y-4">
-                  <h3 className="flex items-center gap-2 text-lg font-bold">
-                    <ShieldCheck className="size-5 text-primary" /> 2. Identity Verification &amp; Documents
-                  </h3>
-                  <p className="text-xs text-muted-foreground -mt-2">
-                    Upload photos of the customer's National ID and buying cash memo. Archived directly to Customer Evidence.
-                  </p>
-
-                  <div className="grid gap-4 sm:grid-cols-2 pt-2">
-                    <UploadTile label="NID Front Photo" file={nidFront} onPick={pickFile(setNidFront)} onClear={() => setNidFront(null)} />
-                    <UploadTile label="NID Back Photo" file={nidBack} onPick={pickFile(setNidBack)} onClear={() => setNidBack(null)} />
-                  </div>
-
-                  <div className="pt-2">
-                    <UploadTile
-                      label="Cash Memo / Buying Form"
-                      hint="Tap to upload cash memo or receipt"
-                      icon={FileText}
-                      file={docs[0] ?? null}
-                      onPick={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (file) setDocs([await readFile(file), ...docs.slice(1)]);
-                      }}
-                      onClear={() => setDocs(docs.slice(1))}
-                    />
-                  </div>
-
-                  <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-primary hover:underline pt-1">
-                    <Plus className="size-3.5" /> Attach Additional Document
-                    <input
-                      type="file"
-                      accept="image/*,application/pdf"
-                      className="hidden"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (file) setDocs([...docs, await readFile(file)]);
-                      }}
-                    />
-                  </label>
-                  {docs.length > 1 ? <p className="text-xs text-muted-foreground">{docs.length} documents attached</p> : null}
-                </section>
-              ) : null}
-
-              {/* Step 2: Phone Details & Payout */}
-              {customerStep === 2 ? (
-                <section className="rounded-xl border border-border bg-card p-6 space-y-5">
-                  <div>
-                    <h3 className="text-lg font-bold">3. Phone Details &amp; Purchase Price</h3>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Enter device specifications, IMEI, condition, and purchase amount paid to the customer.
-                    </p>
-                  </div>
-
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <Field label="Brand *">
-                      <select
-                        value={phone.brand}
-                        onChange={(e) => setPhone({ ...phone, brand: e.target.value })}
-                        className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm font-medium"
-                      >
-                        {PHONE_BRAND_OPTIONS.map((b) => (
-                          <option key={b} value={b}>{b}</option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="Model *">
-                      <Input
-                        value={phone.model}
-                        onChange={(e) => setPhone({ ...phone, model: e.target.value })}
-                        placeholder="e.g. iPhone 15 Pro, Galaxy S23 Ultra"
-                      />
-                    </Field>
-                    <Field label="ROM (Storage)">
-                      <select
-                        value={phone.rom}
-                        onChange={(e) => setPhone({ ...phone, rom: e.target.value })}
-                        className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm font-medium"
-                      >
-                        {PHONE_ROM_OPTIONS.map((opt) => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="RAM">
-                      <select
-                        value={phone.ram}
-                        onChange={(e) => setPhone({ ...phone, ram: e.target.value })}
-                        className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm font-medium"
-                      >
-                        {PHONE_RAM_OPTIONS.map((opt) => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="Condition">
-                      <select
-                        value={phone.condition}
-                        onChange={(e) => setPhone({ ...phone, condition: e.target.value as PhoneCondition })}
-                        className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                      >
-                        {conditions.map((c) => (
-                          <option key={c} value={c}>{c}</option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="IMEI 1 *">
-                      <Input
-                        value={phone.imei}
-                        onChange={(e) => setPhone({ ...phone, imei: e.target.value })}
-                        placeholder="15-digit primary IMEI"
-                        className="font-mono text-xs"
-                      />
-                    </Field>
-                    <Field label="Secondary IMEI (optional)">
-                      <Input
-                        value={phone.imei_secondary}
-                        onChange={(e) => setPhone({ ...phone, imei_secondary: e.target.value })}
-                        placeholder="Optional 2nd IMEI"
-                        className="font-mono text-xs"
-                      />
-                    </Field>
-                    <Field label="Battery Health (optional)">
-                      <Input
-                        value={phone.battery_health}
-                        onChange={(e) => setPhone({ ...phone, battery_health: e.target.value })}
-                        onBlur={() => {
-                          const v = normalizeBatteryHealth(phone.battery_health);
-                          if (v) setPhone((prev) => ({ ...prev, battery_health: v }));
-                        }}
-                        placeholder="e.g. 85%"
-                      />
-                    </Field>
-                    <Field label={<>Agreed Purchase Price (<TakaSign />) * (Paid to Customer)</>}>
-                      <Input
-                        type="number"
-                        min="1"
-                        required
-                        value={phone.purchase_price}
-                        onChange={(e) => setPhone({ ...phone, purchase_price: e.target.value })}
-                        placeholder="e.g. 40000"
-                        className="font-bold text-success text-base"
-                      />
-                    </Field>
-                    <Field label={<>Expected Selling Price (<TakaSign />)</>}>
-                      <Input
-                        type="number"
-                        value={phone.selling_price}
-                        onChange={(e) => setPhone({ ...phone, selling_price: e.target.value })}
-                        placeholder="e.g. 46000"
-                      />
-                    </Field>
-                    <Field label="Condition / Purchase Notes">
-                      <Input
-                        value={phone.condition_notes}
-                        onChange={(e) => setPhone({ ...phone, condition_notes: e.target.value })}
-                        placeholder="e.g. Full box with original charger"
-                      />
-                    </Field>
-                    <div className="sm:col-span-2">
-                      <div
-                        onClick={() => setPhone((p) => ({ ...p, with_box: !p.with_box }))}
-                        className={`flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-colors select-none ${
-                          phone.with_box
-                            ? "border-emerald-500/40 bg-emerald-500/10 text-foreground"
-                            : "border-border/80 bg-secondary/30 hover:bg-secondary/60 text-muted-foreground"
-                        }`}
-                      >
-                        <Checkbox
-                          id="customer-with-box"
-                          checked={phone.with_box}
-                          onCheckedChange={(checked) => setPhone((p) => ({ ...p, with_box: Boolean(checked) }))}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                        <div className="flex items-center gap-2">
-                          <Box className={`size-4 ${phone.with_box ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`} />
-                          <label htmlFor="customer-with-box" className="text-sm font-semibold cursor-pointer text-foreground">
-                            With Box
-                          </label>
-                          <span className="text-xs">
-                            {phone.with_box ? "(Includes original/matching device box)" : "(Phone only, no box)"}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <Field label="Phone Photos">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="text-sm"
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (file) setPhotos([...photos, await readFile(file)]);
-                          }}
-                        />
-                      </Field>
-                    </div>
-                  </div>
-
-                  {/* Damage Checklist */}
-                  <div>
-                    <p className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground">DAMAGE CHECKLIST</p>
-                    <div className="flex flex-wrap gap-2">
-                      {damageItems.map((d) => (
-                        <button
-                          key={d.key}
-                          type="button"
-                          onClick={() => setDamage({ ...damage, [d.key]: !damage[d.key] })}
-                          className={`rounded-lg border px-3 py-2 text-sm transition-colors ${
-                            damage[d.key] ? "bg-primary text-primary-foreground border-primary" : "bg-card hover:bg-secondary border-border"
-                          }`}
-                        >
-                          {d.label} {damage[d.key] ? "⚠️" : ""}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </section>
-              ) : null}
-            </div>
-          ) : null}
-
-          {/* ========================================================================= */}
-          {/* OPTION 2: OWN STOCK ENTRY                                                 */}
-          {/* ========================================================================= */}
-          {sourceMode === "own_stock" ? (
-            <section className="rounded-xl border border-border bg-card p-6 space-y-4">
-              <div>
-                <h3 className="text-lg font-bold">Own Stock Device Details</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Directly record a device into inventory under own shop stock.
-                </p>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2 pt-2">
-                <Field label="Brand *">
-                  <select
-                    value={phone.brand}
-                    onChange={(e) => setPhone({ ...phone, brand: e.target.value })}
-                    className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm font-medium"
-                  >
-                    {PHONE_BRAND_OPTIONS.map((b) => (
-                      <option key={b} value={b}>{b}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Model *">
-                  <Input
-                    value={phone.model}
-                    onChange={(e) => setPhone({ ...phone, model: e.target.value })}
-                    placeholder="e.g. iPhone 15 Pro Max"
-                  />
-                </Field>
-                <Field label="ROM (Storage)">
-                  <select
-                    value={phone.rom}
-                    onChange={(e) => setPhone({ ...phone, rom: e.target.value })}
-                    className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm font-medium"
-                  >
-                    {PHONE_ROM_OPTIONS.map((opt) => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                </Field>
+          <section className="rounded-xl border border-border bg-card p-6 space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Brand *">
+                <select
+                  value={phone.brand}
+                  onChange={(e) => setPhone({ ...phone, brand: e.target.value })}
+                  className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm font-medium"
+                >
+                  {PHONE_BRAND_OPTIONS.map((b) => (
+                    <option key={b} value={b}>{b}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Model *">
+                <Input
+                  value={phone.model}
+                  onChange={(e) => setPhone({ ...phone, model: e.target.value })}
+                  placeholder="e.g. iPhone 15 Pro Max"
+                />
+              </Field>
+              <Field label="ROM (Storage)">
+                <select
+                  value={phone.rom}
+                  onChange={(e) => setPhone({ ...phone, rom: e.target.value })}
+                  className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm font-medium"
+                >
+                  {PHONE_ROM_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+              </Field>
+              {!isApple && (
                 <Field label="RAM">
                   <select
                     value={phone.ram}
@@ -571,63 +203,123 @@ export function AddPhoneDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                     ))}
                   </select>
                 </Field>
-                <Field label="Condition">
-                  <select
-                    value={phone.condition}
-                    onChange={(e) => setPhone({ ...phone, condition: e.target.value as PhoneCondition })}
-                    className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                  >
-                    {conditions.map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="IMEI 1 *">
-                  <Input
-                    value={phone.imei}
-                    onChange={(e) => setPhone({ ...phone, imei: e.target.value })}
-                    placeholder="15-digit primary IMEI"
-                    className="font-mono text-xs"
-                  />
-                </Field>
-                <Field label="Secondary IMEI (optional)">
-                  <Input
-                    value={phone.imei_secondary}
-                    onChange={(e) => setPhone({ ...phone, imei_secondary: e.target.value })}
-                    placeholder="Optional 2nd IMEI"
-                    className="font-mono text-xs"
-                  />
-                </Field>
-                <Field label="Battery Health (optional)">
-                  <Input
-                    value={phone.battery_health}
-                    onChange={(e) => setPhone({ ...phone, battery_health: e.target.value })}
-                    onBlur={() => {
-                      const v = normalizeBatteryHealth(phone.battery_health);
-                      if (v) setPhone((prev) => ({ ...prev, battery_health: v }));
-                    }}
-                    placeholder="e.g. 85%"
-                  />
-                </Field>
-                <Field label={<>Cost / Purchase Price (<TakaSign />) *</>}>
-                  <Input
-                    type="number"
-                    min="0"
-                    required
-                    value={phone.purchase_price}
-                    onChange={(e) => setPhone({ ...phone, purchase_price: e.target.value })}
-                    placeholder="e.g. 85000"
-                    className="font-bold text-foreground text-base"
-                  />
-                </Field>
-                <Field label={<>Selling Price (<TakaSign />)</>}>
-                  <Input
-                    type="number"
-                    value={phone.selling_price}
-                    onChange={(e) => setPhone({ ...phone, selling_price: e.target.value })}
-                    placeholder="e.g. 98000"
-                  />
-                </Field>
+              )}
+              <Field label="Condition">
+                <select
+                  value={phone.condition}
+                  onChange={(e) => setPhone({ ...phone, condition: e.target.value as PhoneCondition })}
+                  className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                >
+                  {conditions.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="IMEI 1 *">
+                <Input
+                  value={phone.imei}
+                  onChange={(e) => setPhone({ ...phone, imei: e.target.value })}
+                  placeholder="15-digit primary IMEI"
+                  className={`font-mono text-xs transition-colors ${
+                    duplicatePhone
+                      ? "border-destructive focus-visible:ring-destructive text-destructive bg-destructive/5 font-semibold"
+                      : ""
+                  }`}
+                />
+                {duplicatePhone && (
+                  <div className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive mt-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
+                    <AlertCircle className="size-4 shrink-0 mt-0.5 text-destructive" />
+                    <div className="space-y-0.5">
+                      <div className="font-semibold flex items-center gap-1.5">
+                        <span>Duplicate IMEI Detected</span>
+                        <span className="inline-flex items-center rounded-full bg-destructive/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                          Already Exists
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-foreground/85 leading-relaxed">
+                        This IMEI is already registered to <strong className="text-foreground font-semibold">{duplicatePhone.brand} {duplicatePhone.model}</strong> (Status: <span className="font-semibold underline decoration-destructive/50">{duplicatePhone.status}</span>). Duplicate IMEIs are not allowed.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </Field>
+              <Field label="Secondary IMEI (optional)">
+                <Input
+                  value={phone.imei_secondary}
+                  onChange={(e) => setPhone({ ...phone, imei_secondary: e.target.value })}
+                  placeholder="Optional 2nd IMEI"
+                  className={`font-mono text-xs transition-colors ${
+                    duplicateSecondaryPhone
+                      ? "border-destructive focus-visible:ring-destructive text-destructive bg-destructive/5 font-semibold"
+                      : ""
+                  }`}
+                />
+                {duplicateSecondaryPhone && (
+                  <div className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive mt-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
+                    <AlertCircle className="size-4 shrink-0 mt-0.5 text-destructive" />
+                    <div className="space-y-0.5">
+                      <div className="font-semibold text-destructive">
+                        {duplicateSecondaryPhone.isSelfConflict
+                          ? "Secondary IMEI cannot match Primary IMEI"
+                          : "Duplicate Secondary IMEI"}
+                      </div>
+                      <p className="text-[11px] text-foreground/85 leading-relaxed">
+                        {duplicateSecondaryPhone.isSelfConflict
+                          ? "Primary and secondary IMEI cannot be identical."
+                          : `This secondary IMEI is already in use by ${duplicateSecondaryPhone.brand} ${duplicateSecondaryPhone.model} (${duplicateSecondaryPhone.status}).`}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </Field>
+              <Field label="Battery Health (optional)">
+                <Input
+                  value={phone.battery_health}
+                  onChange={(e) => setPhone({ ...phone, battery_health: e.target.value })}
+                  onBlur={() => {
+                    const v = normalizeBatteryHealth(phone.battery_health);
+                    if (v) setPhone((prev) => ({ ...prev, battery_health: v }));
+                  }}
+                  placeholder="e.g. 85%"
+                />
+              </Field>
+              <Field label="Serial Number (optional)">
+                <Input
+                  value={phone.serial_number}
+                  onChange={(e) => setPhone({ ...phone, serial_number: e.target.value })}
+                  placeholder="e.g. F2LWQ1HFXXXX"
+                  className="font-mono text-xs"
+                />
+              </Field>
+              <Field label="Cycle Count (optional)">
+                <Input
+                  type="number"
+                  min="0"
+                  value={phone.cycle_count}
+                  onChange={(e) => setPhone({ ...phone, cycle_count: e.target.value })}
+                  placeholder="e.g. 120"
+                />
+              </Field>
+              <Field label={<>Cost / Purchase Price (<TakaSign />) *</>}>
+                <Input
+                  type="number"
+                  min="0"
+                  required
+                  value={phone.purchase_price}
+                  onChange={(e) => setPhone({ ...phone, purchase_price: e.target.value })}
+                  placeholder="e.g. 85000"
+                  className="font-bold text-foreground text-base"
+                />
+              </Field>
+              <Field label={<>Selling Price (<TakaSign />)</>}>
+                <Input
+                  type="number"
+                  value={phone.selling_price}
+                  onChange={(e) => setPhone({ ...phone, selling_price: e.target.value })}
+                  placeholder="e.g. 98000"
+                />
+              </Field>
+              <div className="sm:col-span-2">
                 <Field label="Condition Notes / Details">
                   <Input
                     value={phone.condition_notes}
@@ -635,77 +327,56 @@ export function AddPhoneDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                     placeholder="e.g. Brand new intact box, official warranty"
                   />
                 </Field>
-                <div className="sm:col-span-2">
-                  <div
-                    onClick={() => setPhone((p) => ({ ...p, with_box: !p.with_box }))}
-                    className={`flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-colors select-none ${
-                      phone.with_box
-                        ? "border-emerald-500/40 bg-emerald-500/10 text-foreground"
-                        : "border-border/80 bg-secondary/30 hover:bg-secondary/60 text-muted-foreground"
-                    }`}
-                  >
-                    <Checkbox
-                      id="own-stock-with-box"
-                      checked={phone.with_box}
-                      onCheckedChange={(checked) => setPhone((p) => ({ ...p, with_box: Boolean(checked) }))}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                    <div className="flex items-center gap-2">
-                      <Box className={`size-4 ${phone.with_box ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`} />
-                      <label htmlFor="own-stock-with-box" className="text-sm font-semibold cursor-pointer text-foreground">
-                        With Box
-                      </label>
-                      <span className="text-xs">
-                        {phone.with_box ? "(Includes original/matching device box)" : "(Phone only, no box)"}
-                      </span>
-                    </div>
+              </div>
+              <div className="sm:col-span-2">
+                <div
+                  onClick={() => setPhone((p) => ({ ...p, with_box: !p.with_box }))}
+                  className={`flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-colors select-none ${
+                    phone.with_box
+                      ? "border-emerald-500/40 bg-emerald-500/10 text-foreground"
+                      : "border-border/80 bg-secondary/30 hover:bg-secondary/60 text-muted-foreground"
+                  }`}
+                >
+                  <Checkbox
+                    id="phone-with-box"
+                    checked={phone.with_box}
+                    onCheckedChange={(checked) => setPhone((p) => ({ ...p, with_box: Boolean(checked) }))}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                  <div className="flex items-center gap-2">
+                    <Box className={`size-4 ${phone.with_box ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`} />
+                    <label htmlFor="phone-with-box" className="text-sm font-semibold cursor-pointer text-foreground">
+                      With Box
+                    </label>
+                    <span className="text-xs">
+                      {phone.with_box ? "(Includes original/matching device box)" : "(Phone only, no box)"}
+                    </span>
                   </div>
                 </div>
               </div>
-            </section>
-          ) : null}
+            </div>
+          </section>
         </div>
 
         {/* Footer */}
         <DialogFooter className="px-6 py-4 border-t border-border bg-card">
-          {sourceMode === "customer" ? (
-            <>
-              <Button
-                variant="outline"
-                className="rounded-xl"
-                onClick={() => (customerStep === 0 ? onOpenChange(false) : setCustomerStep(customerStep - 1))}
-              >
-                {customerStep === 0 ? "Cancel" : "Back"}
-              </Button>
-              {customerStep < 2 ? (
-                <Button className="rounded-xl" onClick={() => setCustomerStep(customerStep + 1)}>
-                  Continue
-                </Button>
-              ) : (
-                <Button
-                  variant="destructive"
-                  className="rounded-xl"
-                  onClick={handleCustomerSubmit}
-                  disabled={!customer.name.trim() || !phone.model.trim() || !phone.imei.trim() || !phone.purchase_price}
-                >
-                  Save &amp; Add to Stock
-                </Button>
-              )}
-            </>
-          ) : (
-            <>
-              <Button variant="outline" className="rounded-xl" onClick={() => onOpenChange(false)}>
-                Cancel
-              </Button>
-              <Button
-                className="rounded-xl"
-                onClick={handleOwnStockSubmit}
-                disabled={!phone.brand.trim() || !phone.model.trim() || !phone.imei.trim() || !phone.purchase_price}
-              >
-                Add to Own Stock
-              </Button>
-            </>
-          )}
+          <Button variant="outline" className="rounded-xl" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            className="rounded-xl"
+            onClick={handleSubmit}
+            disabled={
+              !phone.brand.trim() ||
+              !phone.model.trim() ||
+              !phone.imei.trim() ||
+              !phone.purchase_price ||
+              Boolean(duplicatePhone) ||
+              Boolean(duplicateSecondaryPhone)
+            }
+          >
+            Add Phone to Stock
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -720,49 +391,3 @@ export function Field({ label, children }: { label: React.ReactNode; children: R
     </div>
   );
 }
-
-function UploadTile({
-  label,
-  hint,
-  file,
-  onPick,
-  onClear,
-  icon: Icon = Camera,
-}: {
-  label: string;
-  hint?: string;
-  file: StoredFile | null;
-  onPick: (e: ChangeEvent<HTMLInputElement>) => void;
-  onClear?: () => void;
-  icon?: typeof Camera;
-}) {
-  return (
-    <div className="relative">
-      <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-secondary/40 p-5 text-center hover:bg-secondary transition-colors">
-        {file ? (
-          isImageDocument(file) ? (
-            <img src={file.data} alt={label} className="h-24 rounded-lg object-cover" />
-          ) : (
-            <FileText className="size-6 text-primary" />
-          )
-        ) : (
-          <Icon className="size-6 text-destructive" />
-        )}
-        <span className="text-sm font-medium">{file ? file.name : label}</span>
-        {hint && !file ? <span className="text-xs text-muted-foreground">{hint}</span> : null}
-        <input type="file" accept="image/*,application/pdf" className="hidden" onChange={onPick} />
-      </label>
-      {file && onClear ? (
-        <button
-          type="button"
-          onClick={onClear}
-          className="absolute top-2 right-2 rounded-full p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-          title="Remove"
-        >
-          <Trash2 className="size-4" />
-        </button>
-      ) : null}
-    </div>
-  );
-}
-

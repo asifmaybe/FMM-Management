@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { normalizeBatteryHealth, useFmm } from "@/lib/fmm-store";
+import { normalizeBatteryHealth, normalizeCycleCount, useFmm } from "@/lib/fmm-store";
 import { type PhoneCondition, PHONE_BRAND_OPTIONS, PHONE_RAM_OPTIONS, PHONE_ROM_OPTIONS } from "@/lib/fmm-types";
 import { TakaSign } from "@/components/fmm/Taka";
 
@@ -17,6 +17,8 @@ interface Row {
   model: string;
   rom: string;
   ram: string;
+  serial_number: string;
+  cycle_count: string;
   battery_health: string;
   condition: PhoneCondition;
   purchase_price: string;
@@ -30,6 +32,8 @@ const emptyRow = (): Row => ({
   model: "",
   rom: "128GB",
   ram: "8GB",
+  serial_number: "",
+  cycle_count: "",
   battery_health: "",
   condition: "New",
   purchase_price: "",
@@ -48,7 +52,7 @@ export function BulkAddPhonesDialog({
   supplierId: string;
   supplierName: string;
 }) {
-  const { addPhonesBatch } = useFmm();
+  const { state, addPhonesBatch } = useFmm();
   const [rows, setRows] = useState<Row[]>([emptyRow(), emptyRow(), emptyRow()]);
 
   const set = (i: number, k: keyof Row, v: string) =>
@@ -66,13 +70,35 @@ export function BulkAddPhonesDialog({
       toast.error("Every filled row needs IMEI, brand, model and purchase price.");
       return;
     }
+
+    const existingImeis = new Set(
+      (state.phones ?? []).map((p) => p.imei.trim().toLowerCase()),
+    );
+    const seenBatchImeis = new Set<string>();
+
+    for (const [i, r] of filled.entries()) {
+      const imeiClean = r.imei.trim().toLowerCase();
+      if (existingImeis.has(imeiClean)) {
+        toast.error(`Row #${i + 1}: IMEI "${r.imei.trim()}" already exists in phone inventory.`);
+        return;
+      }
+      if (seenBatchImeis.has(imeiClean)) {
+        toast.error(`Row #${i + 1}: Duplicate IMEI "${r.imei.trim()}" within this batch.`);
+        return;
+      }
+      seenBatchImeis.add(imeiClean);
+    }
     const phoneList = filled.map((r) => ({
       imei: r.imei.trim(),
       imei_secondary: null,
+      serial_number: r.serial_number.trim() || null,
+      cycle_count: normalizeCycleCount(r.cycle_count),
       battery_health: normalizeBatteryHealth(r.battery_health),
       brand: r.brand.trim() || "Apple",
       model: r.model.trim(),
-      storage_ram: [r.rom.trim(), r.ram.trim()].filter(Boolean).join(" / ") || "Standard",
+      storage_ram: r.brand.trim().toLowerCase() === "apple"
+        ? r.rom.trim() || "Standard"
+        : [r.rom.trim(), r.ram.trim()].filter(Boolean).join(" / ") || "Standard",
       condition: r.condition,
       source_type: "Supplier Purchase" as const,
       supplier_id: supplierId,
@@ -107,8 +133,8 @@ export function BulkAddPhonesDialog({
           <table className="w-full min-w-[1080px] text-sm">
             <thead className="sticky top-0 bg-secondary/80 text-left text-xs text-muted-foreground">
               <tr>
-                {["IMEI", "Brand", "Model", "ROM", "RAM", "Battery %", "Condition", "Box", <>Buy (<TakaSign />)</>, <>Sell (<TakaSign />)</>, ""].map((h, hi) => (
-                  <th key={hi} className={`px-3 py-2 font-medium ${h === "Box" ? "text-center w-14" : ""}`}>
+                {["IMEI", "Brand", "Model", "ROM", "RAM", "Battery %", "Serial No.", "Cycles", "Condition", "Box", <>Buy (<TakaSign />)</>, <>Sell (<TakaSign />)</>, ""].map((h, hi) => (
+                  <th key={hi} className={`px-3 py-2 font-medium whitespace-nowrap ${h === "Box" ? "text-center w-14" : ""}`}>
                     {h}
                   </th>
                 ))}
@@ -150,17 +176,21 @@ export function BulkAddPhonesDialog({
                     </select>
                   </td>
                   <td className="px-2 py-2">
-                    <select
-                      value={r.ram}
-                      onChange={(e) => set(i, "ram", e.target.value)}
-                      className="h-9 w-20 rounded-md border border-input bg-transparent px-2 text-xs font-medium"
-                    >
-                      {PHONE_RAM_OPTIONS.map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      ))}
-                    </select>
+                    {r.brand !== "Apple" ? (
+                      <select
+                        value={r.ram}
+                        onChange={(e) => set(i, "ram", e.target.value)}
+                        className="h-9 w-20 rounded-md border border-input bg-transparent px-2 text-xs font-medium"
+                      >
+                        {PHONE_RAM_OPTIONS.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-xs text-muted-foreground italic px-1">N/A</span>
+                    )}
                   </td>
                   <td className="px-2 py-2">
                     <Input
@@ -172,6 +202,24 @@ export function BulkAddPhonesDialog({
                         if (v) set(i, "battery_health", v);
                       }}
                       placeholder="85%"
+                    />
+                  </td>
+                  <td className="px-2 py-2">
+                    <Input
+                      className="h-9 w-28 text-xs font-mono"
+                      value={r.serial_number}
+                      onChange={(e) => set(i, "serial_number", e.target.value)}
+                      placeholder="Serial No."
+                    />
+                  </td>
+                  <td className="px-2 py-2">
+                    <Input
+                      className="h-9 w-20 text-xs"
+                      type="number"
+                      min="0"
+                      value={r.cycle_count}
+                      onChange={(e) => set(i, "cycle_count", e.target.value)}
+                      placeholder="Cycles"
                     />
                   </td>
                   <td className="px-2 py-2">

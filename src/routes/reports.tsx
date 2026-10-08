@@ -16,6 +16,7 @@ import {
   FileCheck2,
   FileText,
   Filter,
+  Headphones,
   History,
   Info,
   Layers,
@@ -44,7 +45,7 @@ import { Taka } from "@/components/fmm/Taka";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { buildDayReport, buildSeries, monthMatrix, type Granularity } from "@/lib/fmm-analytics";
+import { buildDayReport, buildSeries, monthMatrix, getTransactionCost, type Granularity } from "@/lib/fmm-analytics";
 import {
   generateBusinessReport,
   getReportDateRange,
@@ -64,7 +65,7 @@ import {
   getTransactionPayment,
 } from "@/lib/fmm-store";
 import type { Transaction } from "@/lib/fmm-types";
-import { cn } from "@/lib/utils";
+import { cn, formatStorageRam } from "@/lib/utils";
 
 export const Route = createFileRoute("/reports")({
   head: () => ({
@@ -239,8 +240,8 @@ function ReportsPage() {
           )}
         </section>
 
-        {/* 2. EXECUTIVE SUMMARY (8 REQUIRED KPIS - Requirement 3) */}
-        <section className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
+        {/* 2. EXECUTIVE SUMMARY (8 REQUIRED KPIS - 2 ROWS OF 4 CARDS) */}
+        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="rounded-xl border border-border bg-card p-4 space-y-1">
             <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Sales Revenue</p>
             <p className="text-xl font-extrabold text-foreground truncate"><Taka value={executive.totalSalesRevenue} /></p>
@@ -305,7 +306,7 @@ function ReportsPage() {
               </span>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 text-xs">
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-3 text-xs">
               <div>
                 <p className="text-[10px] text-muted-foreground uppercase">Sales Revenue</p>
                 <p className="font-bold text-foreground mt-0.5"><Taka value={dailyClosing.salesRevenue} /></p>
@@ -387,6 +388,15 @@ function ReportsPage() {
                     <span className="font-bold text-foreground text-sm">Sales Revenue</span>
                     <span className="font-bold text-foreground text-sm"><Taka value={profit.salesRevenue} /></span>
                   </div>
+                  {/* Revenue Breakdown */}
+                  <div className="flex justify-between items-center py-1 text-muted-foreground pl-4">
+                    <span className="flex items-center gap-1.5"><Smartphone className="size-3" /> Phone Revenue</span>
+                    <span className="font-medium text-foreground"><Taka value={profit.phoneRevenue} /></span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 text-muted-foreground pl-4">
+                    <span className="flex items-center gap-1.5"><Layers className="size-3" /> Accessory Revenue</span>
+                    <span className="font-medium text-foreground"><Taka value={profit.accessoryRevenue} /></span>
+                  </div>
                   <div className="flex justify-between items-center py-1.5 text-muted-foreground pl-4">
                     <span>Less: Cost of Goods Sold (COGS)</span>
                     <span className="font-medium text-destructive">− <Taka value={profit.cogs} /></span>
@@ -395,10 +405,29 @@ function ReportsPage() {
                     <span>Gross Profit (Product Margin)</span>
                     <span><Taka value={profit.grossProfit} /></span>
                   </div>
+                  {/* Gross Profit Breakdown */}
+                  <div className="flex justify-between items-center py-1 text-muted-foreground pl-4">
+                    <span className="flex items-center gap-1.5"><Smartphone className="size-3" /> Phone Gross Profit</span>
+                    <span className={`font-medium ${profit.phoneGrossProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
+                      <Taka value={profit.phoneGrossProfit} />
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 text-muted-foreground pl-4">
+                    <span className="flex items-center gap-1.5"><Layers className="size-3" /> Accessory Gross Profit</span>
+                    <span className={`font-medium ${profit.accessoryGrossProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
+                      <Taka value={profit.accessoryGrossProfit} />
+                    </span>
+                  </div>
                   <div className="flex justify-between items-center py-1.5 text-muted-foreground pl-4">
                     <span>Less: Operating Expenses (Rent, Bills, Salaries)</span>
                     <span className="font-medium text-destructive">− <Taka value={profit.operatingExpenses} /></span>
                   </div>
+                  {profit.restockedReturnCost > 0 && (
+                    <div className="flex justify-between items-center py-1.5 text-muted-foreground pl-4">
+                      <span>Less: Customer Return Refunds (Restocked Cost)</span>
+                      <span className="font-medium text-destructive">− <Taka value={profit.restockedReturnCost} /></span>
+                    </div>
+                  )}
                   <div className={`flex justify-between items-center py-3 px-4 rounded-xl text-sm font-black ${profit.netProfit >= 0 ? "bg-primary text-primary-foreground" : "bg-destructive text-destructive-foreground"}`}>
                     <span>Net Business Profit</span>
                     <span><Taka value={profit.netProfit} /></span>
@@ -905,7 +934,7 @@ function ReportsPage() {
                               </div>
                             </td>
                             <td className="px-4 py-2.5 font-mono text-muted-foreground whitespace-nowrap">{p.imei}</td>
-                            <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap">{p.storage_ram} · {p.condition}</td>
+                            <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap">{formatStorageRam(p.brand, p.storage_ram)} · {p.condition}</td>
                             <td className="px-4 py-2.5 text-right font-medium whitespace-nowrap"><Taka value={p.purchase_price} /></td>
                             <td className="px-4 py-2.5 text-right whitespace-nowrap">
                               <Link to="/stock" search={{ q: p.imei }} className="inline-flex items-center gap-1 font-semibold text-primary hover:underline">
@@ -947,6 +976,7 @@ function ReportsPage() {
                         <th className="px-4 py-3 font-semibold">Items / Device</th>
                         <th className="px-4 py-3 font-semibold">Type</th>
                         <th className="px-4 py-3 text-right font-semibold">Sales Revenue</th>
+                        <th className="px-4 py-3 text-right font-semibold">Profit</th>
                         <th className="px-4 py-3 text-right font-semibold">Paid</th>
                         <th className="px-4 py-3 text-right font-semibold">Due</th>
                         <th className="px-4 py-3 text-center font-semibold">Status</th>
@@ -955,7 +985,15 @@ function ReportsPage() {
                     <tbody className="divide-y divide-border/60">
                       {businessReport.transactions.map((t) => {
                         const pay = getTransactionPayment(t);
+                        const cost = getTransactionCost(state, t);
+                        const profit = pay.total - cost;
                         const phone = state.phones.find((p) => p.id === t.phone_id);
+                        const accessoryItems = (t.items ?? []).filter((it) => it.type === "accessory");
+                        const hasAccessories =
+                          accessoryItems.length > 0 || t.phone_id === "acc_multi";
+                        const totalAccQty = accessoryItems.length > 0
+                          ? accessoryItems.reduce((sum, it) => sum + (it.quantity || 1), 0)
+                          : 1;
                         const summaryDesc = t.items && t.items.length > 0
                           ? t.items.map((it) => it.name).join(", ")
                           : phone ? `${phone.brand} ${phone.model}` : "Item";
@@ -977,8 +1015,23 @@ function ReportsPage() {
                             <td className="px-4 py-3 text-muted-foreground max-w-xs truncate" title={summaryDesc}>
                               {summaryDesc}
                             </td>
-                            <td className="px-4 py-3 text-muted-foreground font-medium">{t.type}</td>
+                            <td className="px-4 py-3 text-muted-foreground font-medium">
+                              <div className="flex items-center gap-1.5">
+                                <span>{t.type}</span>
+                                {hasAccessories && (
+                                  <span
+                                    className="inline-flex items-center justify-center size-5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 shrink-0"
+                                    title="Includes accessories"
+                                  >
+                                    <Headphones className="size-3" />
+                                  </span>
+                                )}
+                              </div>
+                            </td>
                             <td className="px-4 py-3 text-right font-bold text-foreground"><Taka value={pay.total} /></td>
+                            <td className={`px-4 py-3 text-right font-bold ${profit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
+                              <Taka value={profit} />
+                            </td>
                             <td className="px-4 py-3 text-right font-medium text-emerald-600 dark:text-emerald-400"><Taka value={pay.paid} /></td>
                             <td className="px-4 py-3 text-right font-medium text-amber-600 dark:text-amber-400"><Taka value={pay.due} /></td>
                             <td className="px-4 py-3 text-center"><StatusBadge status={pay.status} /></td>
