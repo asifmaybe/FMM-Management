@@ -172,7 +172,7 @@ export function GlobalSearchDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl p-0 overflow-hidden gap-0 border border-slate-200/90 shadow-2xl rounded-2xl bg-white text-slate-900">
+      <DialogContent hideClose className="max-w-2xl p-0 overflow-hidden gap-0 border border-slate-200/90 shadow-2xl rounded-2xl bg-white text-slate-900 [&>button.absolute]:hidden">
         <div className="flex flex-col overflow-hidden rounded-2xl bg-white">
           {/* Search bar */}
           <div className="relative flex items-center px-4 sm:px-5 py-3.5 gap-3 border-b border-slate-100 bg-white">
@@ -201,13 +201,20 @@ export function GlobalSearchDialog({
                     setFocusedIndex(-1);
                   }}
                   className="flex items-center justify-center size-6 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 transition-colors"
+                  title="Clear search"
                 >
                   <X className="size-3.5" />
                 </button>
               )}
-              <kbd className="hidden sm:flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-md text-slate-400 bg-slate-100 border border-slate-200">
-                ESC
-              </kbd>
+              <button
+                type="button"
+                onClick={() => onOpenChange(false)}
+                className="flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-mono rounded-md text-slate-500 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-200 transition-colors cursor-pointer"
+                title="Close dialog (ESC)"
+              >
+                <span>ESC</span>
+                <X className="size-3 text-slate-400" />
+              </button>
             </div>
           </div>
 
