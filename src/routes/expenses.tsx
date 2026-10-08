@@ -15,7 +15,7 @@ import {
   Trash2,
   TrendingDown,
 } from "lucide-react";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import { AppShell, PageHeader } from "@/components/fmm/AppShell";
 import { AddExpenseDialog } from "@/components/fmm/AddExpenseDialog";
@@ -40,13 +40,16 @@ export const Route = createFileRoute("/expenses")({
     period?: ExpensePeriod;
     date?: string;
     month?: string;
+    highlight?: string;
   } => {
     const p = s["period"];
+    const highlight = s["highlight"];
     const valid: ExpensePeriod[] = ["daily", "7days", "monthly", "exact", "all"];
-    const result: { period?: ExpensePeriod; date?: string; month?: string } = {};
+    const result: { period?: ExpensePeriod; date?: string; month?: string; highlight?: string } = {};
     if (typeof p === "string" && valid.includes(p as ExpensePeriod)) result.period = p as ExpensePeriod;
     if (typeof s["date"] === "string") result.date = s["date"];
     if (typeof s["month"] === "string") result.month = s["month"];
+    if (typeof highlight === "string" && highlight) result.highlight = highlight;
     return result;
   },
   component: ExpensesPage,
@@ -65,14 +68,27 @@ function getCurrentMonthIso(): string {
 function ExpensesPage() {
   const { state, deleteExpense, updateExpense } = useFmm();
   const searchParams = Route.useSearch();
+  const highlight = searchParams.highlight;
 
-  // Daily report as default
-  const [period, setPeriod] = useState<ExpensePeriod>(searchParams.period ?? "daily");
+  // Daily report as default, or "all" if highlight is passed
+  const [period, setPeriod] = useState<ExpensePeriod>(searchParams.period ?? (highlight ? "all" : "daily"));
   const [exactDate, setExactDate] = useState<string>(searchParams.date ?? getTodayIso());
   const [selectedMonth, setSelectedMonth] = useState<string>(searchParams.month ?? getCurrentMonthIso());
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  // Auto-scroll to highlighted expense
+  useEffect(() => {
+    if (highlight) {
+      setTimeout(() => {
+        const el = document.getElementById(`row-${highlight}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 150);
+    }
+  }, [highlight]);
 
   // All-time statistics
   const allStats = useMemo(() => {
@@ -435,8 +451,17 @@ function ExpensesPage() {
             <tbody className="divide-y divide-border">
               {filteredExpenses.map((exp) => {
                 const cmp = getCampaign(exp.campaign_id);
+                const isHighlighted = highlight === exp.id;
                 return (
-                  <tr key={exp.id} className="hover:bg-secondary/20 transition-colors">
+                  <tr
+                    key={exp.id}
+                    id={`row-${exp.id}`}
+                    className={`transition-all duration-300 ${
+                      isHighlighted
+                        ? "bg-slate-200/90 dark:bg-slate-800/90 ring-2 ring-slate-400/80 dark:ring-slate-500 shadow-sm"
+                        : "hover:bg-secondary/20"
+                    }`}
+                  >
                     <td className="px-5 py-4 whitespace-nowrap text-muted-foreground">
                       {new Date(exp.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </td>

@@ -13,7 +13,7 @@ import {
   Warehouse,
   X,
 } from "lucide-react";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import { AppShell, PageHeader } from "@/components/fmm/AppShell";
 import { RecordPurchaseDialog } from "@/components/fmm/RecordPurchaseDialog";
@@ -33,12 +33,14 @@ export const Route = createFileRoute("/purchases")({
       { property: "og:description", content: "Track stock procurement, supplier dues and purchase orders." },
     ],
   }),
-  validateSearch: (s: Record<string, unknown>): { supplier?: string; filter?: string } => {
+  validateSearch: (s: Record<string, unknown>): { supplier?: string; filter?: string; highlight?: string } => {
     const supplier = s["supplier"];
     const filter = s["filter"];
-    const out: { supplier?: string; filter?: string } = {};
+    const highlight = s["highlight"];
+    const out: { supplier?: string; filter?: string; highlight?: string } = {};
     if (typeof supplier === "string" && supplier) out.supplier = supplier;
     if (typeof filter === "string" && filter) out.filter = filter;
+    if (typeof highlight === "string" && highlight) out.highlight = highlight;
     return out;
   },
   component: PurchasesPage,
@@ -52,6 +54,19 @@ function PurchasesPage() {
   const [supplierFilter, setSupplierFilter] = useState<string>(searchParams.supplier ?? "All");
   const [search, setSearch] = useState("");
   const [recordOpen, setRecordOpen] = useState(false);
+  const highlight = searchParams.highlight;
+
+  // Auto-scroll to highlighted purchase
+  useEffect(() => {
+    if (highlight) {
+      setTimeout(() => {
+        const el = document.getElementById(`row-${highlight}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 150);
+    }
+  }, [highlight]);
 
   // Compute live paid & due amounts for phone-type purchase batches from per-phone payment ledger
   const augmentedPurchases = useMemo(() => {
@@ -339,8 +354,17 @@ function PurchasesPage() {
                     ? `${p.phone_ids.length} serialized phone(s)`
                     : "Stock batch";
 
+                const isHighlighted = highlight === p.id;
                 return (
-                  <tr key={p.id} className="hover:bg-secondary/20 transition-colors">
+                  <tr
+                    key={p.id}
+                    id={`row-${p.id}`}
+                    className={`transition-all duration-300 ${
+                      isHighlighted
+                        ? "bg-slate-200/90 dark:bg-slate-800/90 ring-2 ring-slate-400/80 dark:ring-slate-500 shadow-sm"
+                        : "hover:bg-secondary/20"
+                    }`}
+                  >
                     <td className="px-5 py-4 whitespace-nowrap text-muted-foreground">
                       {new Date(p.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </td>

@@ -18,7 +18,7 @@ import {
   MapPin,
   X,
 } from "lucide-react";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { AppShell, PageHeader } from "@/components/fmm/AppShell";
 import { AddCustomerDialog } from "@/components/fmm/AddCustomerDialog";
 import { RecordWarrantyDialog } from "@/components/fmm/RecordWarrantyDialog";
@@ -41,11 +41,16 @@ export const Route = createFileRoute("/customers")({
       { property: "og:description", content: "Customer directory, transaction history and identity documentation." },
     ],
   }),
+  validateSearch: (s: Record<string, unknown>): { highlight?: string } => {
+    const highlight = s["highlight"];
+    return typeof highlight === "string" && highlight ? { highlight } : {};
+  },
   component: CustomersPage,
 });
 
 function CustomersPage() {
   const { state, updateWarrantyClaim } = useFmm();
+  const { highlight } = Route.useSearch();
 
   const [search, setSearch] = useState("");
   const [onlyDue, setOnlyDue] = useState(false);
@@ -54,6 +59,18 @@ function CustomersPage() {
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [previewDoc, setPreviewDoc] = useState<{ title: string; doc: StoredFile } | null>(null);
+
+  // Auto-scroll to highlighted customer
+  useEffect(() => {
+    if (highlight) {
+      setTimeout(() => {
+        const el = document.getElementById(`row-${highlight}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 150);
+    }
+  }, [highlight]);
 
   const customerStats = useMemo(() => {
     const list = state.customers ?? [];
@@ -241,8 +258,18 @@ function CustomersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filteredCustomers.map(({ customer, transactionsCount, totalSpent, totalDue, salesToFMMCount, hasNidEvidence }) => (
-                <tr key={customer.id} className="hover:bg-secondary/20 transition-colors">
+              {filteredCustomers.map(({ customer, transactionsCount, totalSpent, totalDue, salesToFMMCount, hasNidEvidence }) => {
+                const isHighlighted = highlight === customer.id || highlight === customer.phone || highlight === customer.name;
+                return (
+                  <tr
+                    key={customer.id}
+                    id={`row-${customer.id}`}
+                    className={`transition-all duration-300 ${
+                      isHighlighted
+                        ? "bg-slate-200/90 dark:bg-slate-800/90 ring-2 ring-slate-400/80 dark:ring-slate-500 shadow-sm"
+                        : "hover:bg-secondary/20"
+                    }`}
+                  >
                   <td className="px-5 py-4">
                     <p className="font-semibold text-foreground">{customer.name}</p>
                     {customer.notes ? <p className="text-xs text-muted-foreground line-clamp-1">{customer.notes}</p> : null}
@@ -307,7 +334,8 @@ function CustomersPage() {
                     </div>
                   </td>
                 </tr>
-              ))}
+              );
+            })}
               {filteredCustomers.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-12 text-center text-muted-foreground">

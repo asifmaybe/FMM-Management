@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeftRight, Box, HandCoins, Pencil, Plus, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { AppShell, PageHeader } from "@/components/fmm/AppShell";
 import { StatusBadge } from "@/components/fmm/StatusBadge";
 import { AddPhoneDialog } from "@/components/fmm/AddPhoneDialog";
@@ -24,9 +24,13 @@ export const Route = createFileRoute("/stock")({
       { property: "og:description", content: "Manage and track all mobile devices in stock." },
     ],
   }),
-  validateSearch: (s: Record<string, unknown>): { q?: string } => {
+  validateSearch: (s: Record<string, unknown>): { q?: string; highlight?: string } => {
     const q = s["q"];
-    return typeof q === "string" && q ? { q } : {};
+    const highlight = s["highlight"];
+    const out: { q?: string; highlight?: string } = {};
+    if (typeof q === "string" && q) out.q = q;
+    if (typeof highlight === "string" && highlight) out.highlight = highlight;
+    return out;
   },
   component: StockPage,
 });
@@ -34,9 +38,19 @@ export const Route = createFileRoute("/stock")({
 function StockPage() {
   const { state } = useFmm();
   const navigate = useNavigate();
-  const { q: initialSearch } = Route.useSearch();
+  const { q: initialSearch, highlight } = Route.useSearch();
   const [query, setQuery] = useState(initialSearch ?? "");
-  const [status, setStatus] = useState("Available");
+
+  const initialStatus = useMemo(() => {
+    if (!highlight) return "Available";
+    const p = state.phones.find((item) => item.id === highlight || item.imei === highlight);
+    if (!p) return "Available";
+    if (p.status === "Available") return "Available";
+    if (p.status === "Sold" || p.status === "Exchange") return "Sold";
+    return "All";
+  }, [highlight, state.phones]);
+
+  const [status, setStatus] = useState(initialStatus);
   const [supplier, setSupplier] = useState("All");
   const [sortBy, setSortBy] = useState("newest");
   const [open, setOpen] = useState(false);
@@ -44,6 +58,18 @@ function StockPage() {
   const [exchangeOpen, setExchangeOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [editingPhone, setEditingPhone] = useState<Phone | null>(null);
+
+  // Auto-scroll to highlighted phone
+  useEffect(() => {
+    if (highlight) {
+      setTimeout(() => {
+        const el = document.getElementById(`row-${highlight}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 150);
+    }
+  }, [highlight]);
 
   const counts = useMemo(() => {
     const available = state.phones.filter((p) => p.status === "Available").length;
@@ -229,8 +255,18 @@ function StockPage() {
             <tbody className="divide-y divide-border">
               {rows.map((p) => {
                 const specs = formatStorageRam(p.brand, p.storage_ram);
+                const isHighlighted = highlight === p.id || highlight === p.imei;
                 return (
-                <tr key={p.id} className="cursor-pointer hover:bg-secondary/40 transition-colors" onClick={() => setDetailId(p.id)}>
+                <tr
+                  key={p.id}
+                  id={`row-${p.id}`}
+                  className={`cursor-pointer transition-all duration-300 ${
+                    isHighlighted
+                      ? "bg-slate-200/90 dark:bg-slate-800/90 ring-2 ring-slate-400/80 dark:ring-slate-500 shadow-sm"
+                      : "hover:bg-secondary/40"
+                  }`}
+                  onClick={() => setDetailId(p.id)}
+                >
                   <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">
                     {new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                   </td>

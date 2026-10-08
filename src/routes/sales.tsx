@@ -22,7 +22,7 @@ import {
   MapPin,
   X,
 } from "lucide-react";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import { AppShell, PageHeader } from "@/components/fmm/AppShell";
 import { NewSaleDialog } from "@/components/fmm/NewSaleDialog";
@@ -79,16 +79,26 @@ export const Route = createFileRoute("/sales")({
       { property: "og:description", content: "Manage phone and accessory sales, trade-in exchanges, warranty claims and customer returns." },
     ],
   }),
-  validateSearch: (s: Record<string, unknown>): { customer?: string } => {
+  validateSearch: (s: Record<string, unknown>): {
+    customer?: string;
+    highlight?: string;
+    tab?: "sales" | "exchanges" | "warranty";
+  } => {
     const customer = s["customer"];
-    return typeof customer === "string" && customer ? { customer } : {};
+    const highlight = s["highlight"];
+    const tab = s["tab"];
+    const out: { customer?: string; highlight?: string; tab?: "sales" | "exchanges" | "warranty" } = {};
+    if (typeof customer === "string" && customer) out.customer = customer;
+    if (typeof highlight === "string" && highlight) out.highlight = highlight;
+    if (tab === "sales" || tab === "exchanges" || tab === "warranty") out.tab = tab;
+    return out;
   },
   component: SalesPage,
 });
 
 function SalesPage() {
   const { state, collectPayment, updateWarrantyClaim } = useFmm();
-  const { customer: customerSearchParam } = Route.useSearch();
+  const { customer: customerSearchParam, highlight, tab: initialTab } = Route.useSearch();
 
   type SortOption =
     | "date-desc"
@@ -99,7 +109,7 @@ function SalesPage() {
     | "amount-asc"
     | "due-desc";
 
-  const [viewTab, setViewTab] = useState<"sales" | "exchanges" | "warranty">("sales");
+  const [viewTab, setViewTab] = useState<"sales" | "exchanges" | "warranty">(initialTab ?? "sales");
   const [filter, setFilter] = useState("All");
   const [dateFilter, setDateFilter] = useState<"all" | "today" | "yesterday" | "thisMonth" | "exact">("all");
   const [exactDate, setExactDate] = useState("");
@@ -112,6 +122,18 @@ function SalesPage() {
   const [collectTx, setCollectTx] = useState<Transaction | null>(null);
   const [inspectPhone, setInspectPhone] = useState<Phone | null>(null);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+
+  // Auto-scroll to highlighted item
+  useEffect(() => {
+    if (highlight) {
+      setTimeout(() => {
+        const el = document.getElementById(`row-${highlight}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 150);
+    }
+  }, [highlight, viewTab]);
 
   const stats = useMemo(() => {
     const list = state.transactions ?? [];
@@ -749,7 +771,12 @@ function SalesPage() {
                     return (
                       <tr
                         key={t.id}
-                        className="cursor-pointer hover:bg-secondary/40 transition-colors group"
+                        id={`row-${t.id}`}
+                        className={`cursor-pointer transition-all duration-300 group ${
+                          highlight === t.id
+                            ? "bg-slate-200/90 dark:bg-slate-800/90 ring-2 ring-slate-400/80 dark:ring-slate-500 shadow-sm"
+                            : "hover:bg-secondary/40"
+                        }`}
                         onClick={() => setSelectedTx(t)}
                       >
                         <td className="w-[110px] px-3.5 py-2.5 whitespace-nowrap text-muted-foreground text-xs">
@@ -1037,7 +1064,15 @@ function SalesPage() {
                     const isPendingInspection = inPh?.status === "In Inspection";
 
                     return (
-                      <tr key={exc.id} className="hover:bg-secondary/20 transition-colors">
+                      <tr
+                        key={exc.id}
+                        id={`row-${exc.id}`}
+                        className={`transition-all duration-300 ${
+                          highlight === exc.id
+                            ? "bg-slate-200/90 dark:bg-slate-800/90 ring-2 ring-slate-400/80 dark:ring-slate-500 shadow-sm"
+                            : "hover:bg-secondary/20"
+                        }`}
+                      >
                         <td className="px-5 py-4 whitespace-nowrap text-muted-foreground text-xs">
                           {new Date(exc.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                         </td>
@@ -1157,7 +1192,15 @@ function SalesPage() {
                   </thead>
                   <tbody className="divide-y divide-border">
                     {filteredWarrantyClaims.map((w) => (
-                      <tr key={w.id} className="hover:bg-secondary/20 transition-colors">
+                      <tr
+                        key={w.id}
+                        id={`row-${w.id}`}
+                        className={`transition-all duration-300 ${
+                          highlight === w.id
+                            ? "bg-slate-200/90 dark:bg-slate-800/90 ring-2 ring-slate-400/80 dark:ring-slate-500 shadow-sm"
+                            : "hover:bg-secondary/20"
+                        }`}
+                      >
                         <td className="px-5 py-4 whitespace-nowrap text-muted-foreground">
                           {new Date(w.claim_date).toLocaleDateString()}
                         </td>

@@ -12,7 +12,7 @@ import {
   Search,
   ShoppingCart,
 } from "lucide-react";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { AppShell, PageHeader } from "@/components/fmm/AppShell";
 import { AddAccessoryDialog } from "@/components/fmm/AddAccessoryDialog";
 import { AdjustStockDialog } from "@/components/fmm/AdjustStockDialog";
@@ -33,12 +33,14 @@ export const Route = createFileRoute("/accessories")({
       { property: "og:description", content: "Track quantity-based mobile accessories, stock movements, and low-stock alerts." },
     ],
   }),
-  validateSearch: (s: Record<string, unknown>): { search?: string; low_stock?: string } => {
+  validateSearch: (s: Record<string, unknown>): { search?: string; low_stock?: string; highlight?: string } => {
     const search = s["search"];
     const low_stock = s["low_stock"];
-    const out: { search?: string; low_stock?: string } = {};
+    const highlight = s["highlight"];
+    const out: { search?: string; low_stock?: string; highlight?: string } = {};
     if (typeof search === "string" && search) out.search = search;
     if (typeof low_stock === "string" && low_stock) out.low_stock = low_stock;
+    if (typeof highlight === "string" && highlight) out.highlight = highlight;
     return out;
   },
   component: AccessoriesPage,
@@ -59,15 +61,27 @@ const CATEGORIES: ("All" | AccessoryCategory)[] = [
 
 function AccessoriesPage() {
   const { state } = useFmm();
-  const searchParams = Route.useSearch();
+  const { search: searchParam, low_stock: lowStockParam, highlight } = Route.useSearch();
 
   const [category, setCategory] = useState<string>("All");
-  const [search, setSearch] = useState(searchParams.search ?? "");
-  const [lowStockOnly, setLowStockOnly] = useState(searchParams.low_stock === "true");
+  const [search, setSearch] = useState(searchParam ?? "");
+  const [lowStockOnly, setLowStockOnly] = useState(lowStockParam === "true");
   const [addOpen, setAddOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Accessory | null>(null);
   const [adjustingItem, setAdjustingItem] = useState<Accessory | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+
+  // Auto-scroll to highlighted accessory
+  useEffect(() => {
+    if (highlight) {
+      setTimeout(() => {
+        const el = document.getElementById(`row-${highlight}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 150);
+    }
+  }, [highlight]);
 
   const metrics = useMemo(() => accessoryBusinessMetrics(state), [state]);
 
@@ -232,8 +246,17 @@ function AccessoriesPage() {
             <tbody className="divide-y divide-border">
               {filteredItems.map((item) => {
                 const isLow = item.quantity <= item.min_threshold;
+                const isHighlighted = highlight === item.id;
                 return (
-                  <tr key={item.id} className="hover:bg-secondary/20 transition-colors">
+                  <tr
+                    key={item.id}
+                    id={`row-${item.id}`}
+                    className={`transition-all duration-300 ${
+                      isHighlighted
+                        ? "bg-slate-200/90 dark:bg-slate-800/90 ring-2 ring-slate-400/80 dark:ring-slate-500 shadow-sm"
+                        : "hover:bg-secondary/20"
+                    }`}
+                  >
                     <td className="px-5 py-4">
                       <p className="font-semibold text-foreground">{item.name}</p>
                       <p className="text-xs text-muted-foreground">

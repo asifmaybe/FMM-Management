@@ -40,19 +40,19 @@ const CATEGORY_META: Record<
     icon: <Smartphone className="size-3.5" />,
     label: "Phones",
     color: "text-slate-800",
-    route: () => "/stock",
+    route: (r) => `/stock?highlight=${r.raw.id}`,
   },
   accessories: {
     icon: <Layers className="size-3.5" />,
     label: "Accessories",
     color: "text-blue-700",
-    route: () => "/accessories",
+    route: (r) => `/accessories?highlight=${r.raw.id}`,
   },
   customers: {
     icon: <Users className="size-3.5" />,
     label: "Customers",
     color: "text-emerald-700",
-    route: () => "/customers",
+    route: (r) => `/customers?highlight=${r.raw.id}`,
   },
   suppliers: {
     icon: <Truck className="size-3.5" />,
@@ -70,32 +70,31 @@ const CATEGORY_META: Record<
     icon: <Receipt className="size-3.5" />,
     label: "Transactions",
     color: "text-indigo-700",
-    route: () => "/sales",
+    route: (r) => `/sales?highlight=${r.raw.id}&tab=sales`,
   },
   purchases: {
     icon: <ShoppingCart className="size-3.5" />,
     label: "Purchases",
     color: "text-orange-700",
-    route: (r) =>
-      r.raw.supplier_id ? `/purchases?supplier=${r.raw.supplier_id}` : "/purchases",
+    route: (r) => `/purchases?highlight=${r.raw.id}`,
   },
   expenses: {
     icon: <Wallet className="size-3.5" />,
     label: "Expenses",
     color: "text-rose-700",
-    route: () => "/expenses",
+    route: (r) => `/expenses?highlight=${r.raw.id}&period=all`,
   },
   warranty: {
     icon: <ShieldCheck className="size-3.5" />,
     label: "Warranty",
     color: "text-teal-700",
-    route: () => "/sales",
+    route: (r) => `/sales?highlight=${r.raw.id}&tab=warranty`,
   },
   exchanges: {
     icon: <ArrowLeftRight className="size-3.5" />,
     label: "Exchanges",
     color: "text-purple-700",
-    route: () => "/sales",
+    route: (r) => `/sales?highlight=${r.raw.id}&tab=exchanges`,
   },
 };
 
