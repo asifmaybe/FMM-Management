@@ -269,7 +269,7 @@ export function BusinessReportPdfDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[94vh] overflow-y-auto p-0 rounded-2xl print:m-0 print:p-0 print:max-w-none print:max-h-none print:shadow-none print:border-0 bg-slate-950/20 backdrop-blur-md">
+      <DialogContent className="max-w-5xl max-h-[94vh] overflow-y-auto p-0 rounded-2xl print:m-0 print:p-0 print:max-w-none print:max-h-none print:shadow-none print:border-0 bg-white border border-border shadow-2xl">
         {/* Modal Controls Bar (Hidden in Print) */}
         <div className="sticky top-0 z-30 flex items-center justify-between border-b border-border/80 bg-background/95 px-6 py-3.5 backdrop-blur-md print:hidden shadow-sm">
           <div className="flex items-center gap-3">
@@ -321,19 +321,19 @@ export function BusinessReportPdfDialog({
         </div>
 
         {/* Printable Document Presentation Frame */}
-        <div className="p-4 sm:p-8 bg-slate-100 dark:bg-zinc-950/60 print:p-0 flex justify-center">
+        <div className="p-4 sm:p-8 bg-slate-50 border-t border-border print:p-0 flex justify-center">
           <div
             id="fmm-printable-report"
-            className="w-full max-w-4xl bg-white text-slate-900 rounded-xl shadow-2xl ring-1 ring-slate-900/10 p-8 sm:p-12 space-y-7 font-sans print:p-0 print:shadow-none print:ring-0 print:rounded-none print:max-w-none print:space-y-6"
+            className="w-full max-w-4xl bg-white text-slate-900 rounded-xl shadow-xl ring-1 ring-slate-900/10 p-8 sm:p-12 space-y-7 font-sans print:p-0 print:shadow-none print:ring-0 print:rounded-none print:max-w-none print:space-y-6"
           >
             {/* Top Brand Stripe */}
-            <div className="h-1.5 w-full bg-gradient-to-r from-slate-900 via-rose-600 to-amber-500 rounded-t" />
+            <div className="h-1.5 w-full bg-gradient-to-r from-red-600 via-rose-500 to-amber-500 rounded-t" />
 
             {/* Document Header */}
             <div className="border-b-2 border-slate-900 pb-5 flex flex-wrap items-start justify-between gap-4">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-black tracking-widest uppercase px-2 py-0.5 rounded bg-slate-900 text-white">
+                  <span className="text-[10px] font-black tracking-widest uppercase px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200">
                     Official Statement
                   </span>
                   <span className="text-[11px] font-semibold text-slate-500">
@@ -370,7 +370,7 @@ export function BusinessReportPdfDialog({
             <section className="space-y-3">
               <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
                 <h2 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
-                  <span className="inline-flex items-center justify-center size-4 rounded bg-slate-900 text-white text-[9px] font-bold">1</span>
+                  <span className="inline-flex items-center justify-center size-4 rounded bg-slate-100 text-slate-700 border border-slate-300 text-[9px] font-bold">1</span>
                   Executive Financial Summary
                 </h2>
                 <span className="text-[10px] font-medium text-slate-500">Key Performance Indicators</span>
@@ -481,7 +481,7 @@ export function BusinessReportPdfDialog({
             <section className="space-y-3">
               <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
                 <h2 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
-                  <span className="inline-flex items-center justify-center size-4 rounded bg-slate-900 text-white text-[9px] font-bold">2</span>
+                  <span className="inline-flex items-center justify-center size-4 rounded bg-slate-100 text-slate-700 border border-slate-300 text-[9px] font-bold">2</span>
                   Profit & Loss Statement (Accrual Method)
                 </h2>
                 <span className="text-[10px] text-slate-500">Standard Accounting Ledger</span>
@@ -565,14 +565,14 @@ export function BusinessReportPdfDialog({
                         </td>
                       </tr>
                     )}
-                    <tr className="bg-slate-900 text-white font-black text-sm">
+                    <tr className="bg-slate-100 border-t-2 border-b-2 border-slate-300 text-slate-900 font-black text-sm">
                       <td className="px-4 py-3 flex items-center justify-between">
                         <span>3. Net Business Profit (Bottom Line)</span>
-                        <span className="text-[10px] font-bold text-slate-300 bg-slate-800 px-2.5 py-0.5 rounded-full">
+                        <span className="text-[10px] font-bold text-slate-700 bg-slate-200 px-2.5 py-0.5 rounded-full">
                           Net Margin: {profit.netMarginPercent.toFixed(1)}%
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-base font-black">
+                      <td className={`px-4 py-3 text-right font-mono text-base font-black ${profit.netProfit >= 0 ? "text-slate-900" : "text-rose-700"}`}>
                         <Taka value={profit.netProfit} />
                       </td>
                     </tr>
@@ -585,7 +585,7 @@ export function BusinessReportPdfDialog({
             <section className="space-y-3">
               <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
                 <h2 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
-                  <span className="inline-flex items-center justify-center size-4 rounded bg-slate-900 text-white text-[9px] font-bold">3</span>
+                  <span className="inline-flex items-center justify-center size-4 rounded bg-slate-100 text-slate-700 border border-slate-300 text-[9px] font-bold">3</span>
                   Cash Flow Statement (Actual Realized Liquid Cash)
                 </h2>
                 <span className="text-[10px] text-slate-500">Inflows vs Outflows</span>
@@ -679,7 +679,7 @@ export function BusinessReportPdfDialog({
             <section className="space-y-3">
               <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
                 <h2 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
-                  <span className="inline-flex items-center justify-center size-4 rounded bg-slate-900 text-white text-[9px] font-bold">4</span>
+                  <span className="inline-flex items-center justify-center size-4 rounded bg-slate-100 text-slate-700 border border-slate-300 text-[9px] font-bold">4</span>
                   Sales & Transaction Activity
                 </h2>
                 <span className="text-[10px] text-slate-500">Volume Analysis</span>
@@ -713,7 +713,7 @@ export function BusinessReportPdfDialog({
             <section className="space-y-3">
               <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
                 <h2 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
-                  <span className="inline-flex items-center justify-center size-4 rounded bg-slate-900 text-white text-[9px] font-bold">5</span>
+                  <span className="inline-flex items-center justify-center size-4 rounded bg-slate-100 text-slate-700 border border-slate-300 text-[9px] font-bold">5</span>
                   Customer Due & Aging Ledger
                 </h2>
                 <span className="text-xs font-black text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 font-mono">
@@ -757,7 +757,7 @@ export function BusinessReportPdfDialog({
             <section className="space-y-3">
               <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
                 <h2 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
-                  <span className="inline-flex items-center justify-center size-4 rounded bg-slate-900 text-white text-[9px] font-bold">6</span>
+                  <span className="inline-flex items-center justify-center size-4 rounded bg-slate-100 text-slate-700 border border-slate-300 text-[9px] font-bold">6</span>
                   Inventory Status & Asset Valuation
                 </h2>
                 <span className="text-[10px] text-slate-500">Live Stock Snapshot</span>
@@ -799,7 +799,7 @@ export function BusinessReportPdfDialog({
             {dailyClosing && (
               <section className="space-y-2 p-4 rounded-xl border border-slate-300 bg-slate-50/90 shadow-2xs">
                 <h2 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
-                  <span className="inline-flex items-center justify-center size-4 rounded bg-slate-900 text-white text-[9px] font-bold">7</span>
+                  <span className="inline-flex items-center justify-center size-4 rounded bg-slate-100 text-slate-700 border border-slate-300 text-[9px] font-bold">7</span>
                   Daily Business Register Closing Snapshot
                 </h2>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs pt-1">
@@ -827,7 +827,7 @@ export function BusinessReportPdfDialog({
             <section className="space-y-3">
               <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
                 <h2 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
-                  <span className="inline-flex items-center justify-center size-4 rounded bg-slate-900 text-white text-[9px] font-bold">
+                  <span className="inline-flex items-center justify-center size-4 rounded bg-slate-100 text-slate-700 border border-slate-300 text-[9px] font-bold">
                     {dailyClosing ? "8" : "7"}
                   </span>
                   Period Transactions ({report.transactions.length} records)
