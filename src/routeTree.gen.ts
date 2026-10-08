@@ -21,6 +21,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as StockRouteImport } from './routes/stock'
 import { Route as CampaignsIndexRouteImport } from './routes/campaigns.index'
 import { Route as CampaignsCampaignIdRouteImport } from './routes/campaigns.$campaignId'
+import { Route as PhoneImeiRouteImport } from './routes/phone.$imei'
 import { Route as SuppliersIndexRouteImport } from './routes/suppliers.index'
 import { Route as SuppliersSupplierIdRouteImport } from './routes/suppliers.$supplierId'
 
@@ -84,6 +85,11 @@ const CampaignsCampaignIdRoute = CampaignsCampaignIdRouteImport.update({
   path: '/campaigns/$campaignId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PhoneImeiRoute = PhoneImeiRouteImport.update({
+  id: '/phone/$imei',
+  path: '/phone/$imei',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SuppliersIndexRoute = SuppliersIndexRouteImport.update({
   id: '/suppliers/',
   path: '/suppliers/',
@@ -107,6 +113,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/stock': typeof StockRoute
   '/campaigns/$campaignId': typeof CampaignsCampaignIdRoute
+  '/phone/$imei': typeof PhoneImeiRoute
   '/suppliers/$supplierId': typeof SuppliersSupplierIdRoute
   '/campaigns/': typeof CampaignsIndexRoute
   '/suppliers/': typeof SuppliersIndexRoute
@@ -123,6 +130,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/stock': typeof StockRoute
   '/campaigns/$campaignId': typeof CampaignsCampaignIdRoute
+  '/phone/$imei': typeof PhoneImeiRoute
   '/suppliers/$supplierId': typeof SuppliersSupplierIdRoute
   '/campaigns': typeof CampaignsIndexRoute
   '/suppliers': typeof SuppliersIndexRoute
@@ -140,6 +148,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/stock': typeof StockRoute
   '/campaigns/$campaignId': typeof CampaignsCampaignIdRoute
+  '/phone/$imei': typeof PhoneImeiRoute
   '/suppliers/$supplierId': typeof SuppliersSupplierIdRoute
   '/campaigns/': typeof CampaignsIndexRoute
   '/suppliers/': typeof SuppliersIndexRoute
@@ -158,6 +167,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/stock'
     | '/campaigns/$campaignId'
+    | '/phone/$imei'
     | '/suppliers/$supplierId'
     | '/campaigns/'
     | '/suppliers/'
@@ -174,6 +184,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/stock'
     | '/campaigns/$campaignId'
+    | '/phone/$imei'
     | '/suppliers/$supplierId'
     | '/campaigns'
     | '/suppliers'
@@ -190,6 +201,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/stock'
     | '/campaigns/$campaignId'
+    | '/phone/$imei'
     | '/suppliers/$supplierId'
     | '/campaigns/'
     | '/suppliers/'
@@ -207,6 +219,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   StockRoute: typeof StockRoute
   CampaignsCampaignIdRoute: typeof CampaignsCampaignIdRoute
+  PhoneImeiRoute: typeof PhoneImeiRoute
   SuppliersSupplierIdRoute: typeof SuppliersSupplierIdRoute
   CampaignsIndexRoute: typeof CampaignsIndexRoute
   SuppliersIndexRoute: typeof SuppliersIndexRoute
@@ -298,6 +311,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CampaignsCampaignIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/phone/$imei': {
+      id: '/phone/$imei'
+      path: '/phone/$imei'
+      fullPath: '/phone/$imei'
+      preLoaderRoute: typeof PhoneImeiRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/suppliers/': {
       id: '/suppliers/'
       path: '/suppliers'
@@ -327,6 +347,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   StockRoute: StockRoute,
   CampaignsCampaignIdRoute: CampaignsCampaignIdRoute,
+  PhoneImeiRoute: PhoneImeiRoute,
   SuppliersSupplierIdRoute: SuppliersSupplierIdRoute,
   CampaignsIndexRoute: CampaignsIndexRoute,
   SuppliersIndexRoute: SuppliersIndexRoute,

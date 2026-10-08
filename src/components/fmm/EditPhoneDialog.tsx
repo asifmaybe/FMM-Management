@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, Box, Check, Edit3, Smartphone, Trash2, X } from "lucide-react";
+import { AlertCircle, AlertTriangle, Box, Check, Edit3, Smartphone, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { normalizeBatteryHealth, normalizeCycleCount, useFmm } from "@/lib/fmm-store";
 import { type Phone, type PhoneCondition, type PhoneStatus, type SourceType, PHONE_BRAND_OPTIONS, PHONE_RAM_OPTIONS, PHONE_ROM_OPTIONS } from "@/lib/fmm-types";
+import { checkImeiCollision, isValidImei } from "@/lib/fmm-imei";
 import { TakaSign } from "@/components/fmm/Taka";
 
 const conditions: PhoneCondition[] = ["Used - Good", "Used - A", "Used - B", "New", "Refurbished"];
@@ -101,8 +102,21 @@ export function EditPhoneDialog({ phone, open, onOpenChange, onDeleted }: EditPh
         },
       });
       setActiveTab("general");
+      setAllowInvalidImei(false);
     }
   }, [phone, open]);
+
+  const [allowInvalidImei, setAllowInvalidImei] = useState(false);
+
+  const imeiValidation = useMemo(() => {
+    if (!form.imei.trim()) return { valid: true };
+    return isValidImei(form.imei);
+  }, [form.imei]);
+
+  const collision = useMemo(() => {
+    if (!phone || (!form.imei.trim() && !form.imei_secondary.trim())) return { hasCollision: false as const };
+    return checkImeiCollision(state, form.imei, form.imei_secondary, phone.id);
+  }, [phone, form.imei, form.imei_secondary, state]);
 
   if (!phone) return null;
 
@@ -119,6 +133,16 @@ export function EditPhoneDialog({ phone, open, onOpenChange, onDeleted }: EditPh
     }
     if (!form.imei.trim()) {
       toast.error("Primary IMEI is required.");
+      setActiveTab("general");
+      return;
+    }
+    if (!imeiValidation.valid && !allowInvalidImei) {
+      toast.error(`IMEI warning: ${imeiValidation.reason}. Confirm the checkbox to proceed.`);
+      setActiveTab("general");
+      return;
+    }
+    if (collision.hasCollision) {
+      toast.error(collision.message);
       setActiveTab("general");
       return;
     }
@@ -232,8 +256,38 @@ export function EditPhoneDialog({ phone, open, onOpenChange, onDeleted }: EditPh
                   value={form.imei}
                   onChange={(e) => setForm({ ...form, imei: e.target.value })}
                   placeholder="15-digit IMEI"
-                  className="rounded-xl font-mono text-sm"
+                  className={`rounded-xl font-mono text-sm ${
+                    collision.hasCollision && collision.field === "primary"
+                      ? "border-destructive focus-visible:ring-destructive text-destructive bg-destructive/5"
+                      : !imeiValidation.valid
+                      ? "border-amber-500/50"
+                      : ""
+                  }`}
                 />
+                {!imeiValidation.valid && form.imei.trim() && (
+                  <div className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300 mt-1">
+                    <AlertCircle className="size-3.5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                    <div className="space-y-1">
+                      <p className="text-[11px] leading-tight">{imeiValidation.reason}</p>
+                      <div className="flex items-center gap-1.5">
+                        <Checkbox
+                          id="edit-allow-invalid-imei"
+                          checked={allowInvalidImei}
+                          onCheckedChange={(c) => setAllowInvalidImei(Boolean(c))}
+                        />
+                        <label htmlFor="edit-allow-invalid-imei" className="text-[10px] font-medium cursor-pointer text-foreground">
+                          Allow non-standard IMEI
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {collision.hasCollision && collision.field === "primary" && (
+                  <div className="flex items-start gap-1.5 rounded-xl border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive mt-1">
+                    <AlertCircle className="size-3.5 shrink-0 mt-0.5 text-destructive" />
+                    <p className="text-[11px] leading-tight">{collision.message}</p>
+                  </div>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium">Secondary IMEI (Optional)</Label>
@@ -241,8 +295,18 @@ export function EditPhoneDialog({ phone, open, onOpenChange, onDeleted }: EditPh
                   value={form.imei_secondary}
                   onChange={(e) => setForm({ ...form, imei_secondary: e.target.value })}
                   placeholder="e.g. eSIM or second SIM IMEI"
-                  className="rounded-xl font-mono text-sm"
+                  className={`rounded-xl font-mono text-sm ${
+                    collision.hasCollision && (collision.field === "secondary" || collision.type === "self_conflict")
+                      ? "border-destructive focus-visible:ring-destructive text-destructive bg-destructive/5"
+                      : ""
+                  }`}
                 />
+                {collision.hasCollision && (collision.field === "secondary" || collision.type === "self_conflict") && (
+                  <div className="flex items-start gap-1.5 rounded-xl border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive mt-1">
+                    <AlertCircle className="size-3.5 shrink-0 mt-0.5 text-destructive" />
+                    <p className="text-[11px] leading-tight">{collision.message}</p>
+                  </div>
+                )}
               </div>
             </div>
 

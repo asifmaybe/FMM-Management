@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { normalizeBatteryHealth, normalizeCycleCount, useFmm } from "@/lib/fmm-store";
 import { type PhoneCondition, PHONE_BRAND_OPTIONS, PHONE_RAM_OPTIONS, PHONE_ROM_OPTIONS } from "@/lib/fmm-types";
+import { checkImeiCollision, normalizeImei, isValidImei } from "@/lib/fmm-imei";
 import { TakaSign } from "@/components/fmm/Taka";
 
 const conditions: PhoneCondition[] = ["New", "Used - A", "Used - B", "Refurbished"];
@@ -71,22 +72,25 @@ export function BulkAddPhonesDialog({
       return;
     }
 
-    const existingImeis = new Set(
-      (state.phones ?? []).map((p) => p.imei.trim().toLowerCase()),
-    );
     const seenBatchImeis = new Set<string>();
 
     for (const [i, r] of filled.entries()) {
-      const imeiClean = r.imei.trim().toLowerCase();
-      if (existingImeis.has(imeiClean)) {
-        toast.error(`Row #${i + 1}: IMEI "${r.imei.trim()}" already exists in phone inventory.`);
+      const norm = normalizeImei(r.imei);
+      if (!norm) {
+        toast.error(`Row #${i + 1}: Valid IMEI is required.`);
         return;
       }
-      if (seenBatchImeis.has(imeiClean)) {
+      if (seenBatchImeis.has(norm)) {
         toast.error(`Row #${i + 1}: Duplicate IMEI "${r.imei.trim()}" within this batch.`);
         return;
       }
-      seenBatchImeis.add(imeiClean);
+      seenBatchImeis.add(norm);
+
+      const collision = checkImeiCollision(state, r.imei, null);
+      if (collision.hasCollision && collision.type === "conflict") {
+        toast.error(`Row #${i + 1}: ${collision.message}`);
+        return;
+      }
     }
     const phoneList = filled.map((r) => ({
       imei: r.imei.trim(),

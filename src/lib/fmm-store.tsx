@@ -16,12 +16,14 @@ import type {
   FmmState,
   PaymentStatus,
   Phone,
+  PhoneCondition,
   PhoneStatus,
   Purchase,
   PurchaseItem,
   ReturnDisposition,
   SaleItem,
   Settings,
+  SourceType,
   StoredFile,
   Supplier,
   SupplierPayment,
@@ -33,6 +35,7 @@ import type {
   WarrantyClaim,
 } from "./fmm-types";
 import { FMM_APP_VERSION, FMM_BACKUP_VERSION, verifyBackupPayloadString } from "./fmm-backup";
+import { normalizeImei, findPhoneByImei, checkImeiCollision } from "./fmm-imei";
 
 
 export interface FmmContextValue {
@@ -40,6 +43,23 @@ export interface FmmContextValue {
   ready: boolean;
   addPhone: (p: Omit<Phone, "id" | "created_at" | "updated_at">) => void;
   updatePhone: (phoneId: string, patch: Partial<Phone>) => void;
+  reenterPhone: (
+    phoneId: string,
+    updates: {
+      purchase_price: number;
+      selling_price?: number | null;
+      source_type: SourceType;
+      supplier_id?: string | null;
+      customer_purchase_id?: string | null;
+      condition?: PhoneCondition;
+      condition_notes?: string;
+      with_box?: boolean;
+      cycle_count?: number | null;
+      battery_health?: string | null;
+      status?: PhoneStatus;
+    },
+    contextNotes?: string,
+  ) => void;
   deletePhone: (phoneId: string) => void;
   addPhonesBatch: (
     phones: Omit<Phone, "id" | "created_at" | "updated_at">[],
@@ -437,6 +457,26 @@ export function FmmProvider({ children }: { children: ReactNode }) {
     }
 
     setState((prev) => {
+      // Uniqueness guard: block adding phone if its IMEI is already in stock (Available or In Inspection)
+      for (const p of phoneList) {
+        const collision = checkImeiCollision(prev, p.imei, p.imei_secondary);
+        if (collision.hasCollision && collision.inStockConflict) {
+          console.warn("[FMM Store] Blocked adding duplicate in-stock IMEI:", p.imei);
+          return prev;
+        }
+      }
+
+      // Block duplicate IMEIs within the same batch
+      const batchImeis = new Set<string>();
+      for (const p of phoneList) {
+        const norm = normalizeImei(p.imei);
+        if (norm && batchImeis.has(norm)) {
+          console.warn("[FMM Store] Blocked duplicate IMEI within batch:", p.imei);
+          return prev;
+        }
+        if (norm) batchImeis.add(norm);
+      }
+
       const isOwnStock = purchaseOptions?.supplier_id === "own_stock";
       const supplier = isOwnStock ? null : prev.suppliers.find((s) => s.id === purchaseOptions?.supplier_id);
       const auditLogs: AuditEntry[] = [
@@ -508,6 +548,17 @@ export function FmmProvider({ children }: { children: ReactNode }) {
     setState((prev) => {
       const existing = prev.phones.find((p) => p.id === phoneId);
       if (!existing) return prev;
+
+      if (patch.imei || patch.imei_secondary) {
+        const checkPrim = patch.imei ?? existing.imei;
+        const checkSec = patch.imei_secondary !== undefined ? patch.imei_secondary : existing.imei_secondary;
+        const collision = checkImeiCollision(prev, checkPrim, checkSec, phoneId);
+        if (collision.hasCollision && collision.inStockConflict) {
+          console.warn("[FMM Store] Blocked updatePhone due to IMEI collision:", collision.reason);
+          return prev;
+        }
+      }
+
       const updated: Phone = {
         ...existing,
         ...patch,
@@ -523,6 +574,53 @@ export function FmmProvider({ children }: { children: ReactNode }) {
             phoneId,
             `Updated ${updated.brand} ${updated.model} (IMEI: …${updated.imei.slice(-4)})`,
             updated.selling_price,
+          ),
+          ...prev.audit_log,
+        ],
+      };
+    });
+  }, []);
+
+  const reenterPhone = useCallback<FmmContextValue["reenterPhone"]>((phoneId, updates, contextNotes) => {
+    setState((prev) => {
+      const existing = prev.phones.find((p) => p.id === phoneId);
+      if (!existing) return prev;
+      const now = new Date().toISOString();
+
+      const noteSuffix = `Re-entered into stock on ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} (${contextNotes || updates.source_type || "Re-entry"})`;
+      const updatedConditionNotes = existing.condition_notes
+        ? `${existing.condition_notes} · ${updates.condition_notes ? `${updates.condition_notes} · ` : ""}${noteSuffix}`
+        : updates.condition_notes ? `${updates.condition_notes} · ${noteSuffix}` : noteSuffix;
+
+      const updated: Phone = {
+        ...existing,
+        status: updates.status || "Available",
+        source_type: updates.source_type,
+        supplier_id: updates.supplier_id ?? null,
+        customer_purchase_id: updates.customer_purchase_id ?? null,
+        original_purchase_price: existing.purchase_price,
+        purchase_price: updates.purchase_price,
+        selling_price: updates.selling_price !== undefined ? updates.selling_price : existing.selling_price,
+        sold_price: null,
+        sold_date: null,
+        condition: updates.condition || existing.condition,
+        with_box: updates.with_box !== undefined ? Boolean(updates.with_box) : Boolean(existing.with_box),
+        cycle_count: updates.cycle_count !== undefined ? (updates.cycle_count ?? null) : (existing.cycle_count ?? null),
+        battery_health: updates.battery_health !== undefined ? (updates.battery_health ?? null) : (existing.battery_health ?? null),
+        condition_notes: updatedConditionNotes,
+        updated_at: now,
+      };
+
+      return {
+        ...prev,
+        phones: prev.phones.map((p) => (p.id === phoneId ? updated : p)),
+        audit_log: [
+          log(
+            "Device Restocked",
+            "phone",
+            phoneId,
+            `Re-entered ${existing.brand} ${existing.model} (IMEI: …${existing.imei.slice(-4)}) — ${contextNotes || updates.source_type} (Purchase Price: ${taka(updates.purchase_price)})`,
+            updates.purchase_price,
           ),
           ...prev.audit_log,
         ],
@@ -990,14 +1088,32 @@ export function FmmProvider({ children }: { children: ReactNode }) {
     setState((prev) => {
       const now = new Date().toISOString();
       const purchaseId = uid("cp");
+      const existingPhone = findPhoneByImei(prev, phoneInput.imei);
+      const isReentry = Boolean(
+        existingPhone &&
+        existingPhone.status !== "Available" &&
+        existingPhone.status !== "In Inspection",
+      );
+      const phoneId = isReentry && existingPhone ? existingPhone.id : uid("ph");
+      const phoneNote = isReentry && existingPhone
+        ? `${existingPhone.condition_notes ? `${existingPhone.condition_notes} · ` : ""}Bought back from customer on ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+        : phoneInput.condition_notes || "";
+
       const phone: Phone = {
+        ...(isReentry && existingPhone ? existingPhone : {}),
         ...phoneInput,
-        id: uid("ph"),
+        id: phoneId,
         source_type: "Buy from Customer",
         supplier_id: null,
         customer_purchase_id: purchaseId,
+        original_purchase_price: isReentry && existingPhone ? existingPhone.purchase_price : phoneInput.purchase_price,
+        purchase_price: phoneInput.purchase_price,
+        selling_price: phoneInput.selling_price ?? (isReentry && existingPhone ? existingPhone.selling_price : null),
+        sold_price: null,
+        sold_date: null,
         status: "Available",
-        created_at: now,
+        condition_notes: phoneNote,
+        created_at: isReentry && existingPhone ? existingPhone.created_at : now,
         updated_at: now,
       };
       const record: CustomerPurchase = { ...purchase, id: purchaseId, phone_id: phone.id, created_at: now };
@@ -1020,10 +1136,14 @@ export function FmmProvider({ children }: { children: ReactNode }) {
         updatedCustomers = [newCus, ...updatedCustomers];
       }
 
+      const updatedPhones = isReentry
+        ? prev.phones.map((p) => (p.id === phoneId ? phone : p))
+        : [phone, ...prev.phones];
+
       return {
         ...prev,
         customers: updatedCustomers,
-        phones: [phone, ...prev.phones],
+        phones: updatedPhones,
         customer_purchases: [record, ...prev.customer_purchases],
         audit_log: [
           log(
@@ -1031,6 +1151,13 @@ export function FmmProvider({ children }: { children: ReactNode }) {
             "customer_purchase",
             purchaseId,
             `${phone.brand} ${phone.model} from ${record.customer_name}`,
+            record.purchase_price,
+          ),
+          log(
+            "Bought from Customer",
+            "phone",
+            phone.id,
+            `${phone.brand} ${phone.model} (IMEI: …${phone.imei.slice(-4)}) acquired from ${record.customer_name}${isReentry ? " [Re-entered]" : ""}`,
             record.purchase_price,
           ),
           ...prev.audit_log,
@@ -1569,20 +1696,36 @@ export function FmmProvider({ children }: { children: ReactNode }) {
   const recordExchange = useCallback<FmmContextValue["recordExchange"]>((exchange, incomingPhone, outgoingPhoneId, evidenceInput) => {
     setState((prev) => {
       const now = new Date().toISOString();
-      const incomingId = uid("ph");
+      const existingInPhone = findPhoneByImei(prev, incomingPhone.imei);
+      const isReentry = Boolean(
+        existingInPhone &&
+        existingInPhone.status !== "Available" &&
+        existingInPhone.status !== "In Inspection",
+      );
+      const incomingId = isReentry && existingInPhone ? existingInPhone.id : uid("ph");
+      const inNote = isReentry && existingInPhone
+        ? `${existingInPhone.condition_notes ? `${existingInPhone.condition_notes} · ` : ""}Trade-in received on ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+        : incomingPhone.condition_notes || "";
+
       const exchangeId = uid("exc");
       const txId = uid("tx");
       const cpId = uid("cp");
 
       // Trade-in incoming phone enters "In Inspection" status (NOT available immediately)
       const inPhone: Phone = {
+        ...(isReentry && existingInPhone ? existingInPhone : {}),
         ...incomingPhone,
         id: incomingId,
         status: "In Inspection",
         source_type: "Buy from Customer",
         supplier_id: null,
         customer_purchase_id: cpId,
-        created_at: now,
+        original_purchase_price: isReentry && existingInPhone ? existingInPhone.purchase_price : incomingPhone.purchase_price,
+        purchase_price: incomingPhone.purchase_price,
+        sold_price: null,
+        sold_date: null,
+        condition_notes: inNote,
+        created_at: isReentry && existingInPhone ? existingInPhone.created_at : now,
         updated_at: now,
       };
 
@@ -1660,9 +1803,28 @@ export function FmmProvider({ children }: { children: ReactNode }) {
             : `Trade-in downgrade exchange: Outgoing ${outPhone?.brand} ${outPhone?.model} (${taka(exchange.outgoing_value)}) for ${incomingPhone.brand} ${incomingPhone.model} (Valued ${taka(exchange.incoming_valuation)}). Shop owes/paid customer ${taka(settlementAmt)}.`,
       };
 
+      const updatedPhones = isReentry
+        ? prev.phones.map((p) => {
+            if (p.id === outgoingPhoneId) {
+              return { ...p, status: "Exchange" as const, sold_price: exchange.outgoing_value, sold_date: now, updated_at: now };
+            }
+            if (p.id === incomingId) {
+              return inPhone;
+            }
+            return p;
+          })
+        : [
+            inPhone,
+            ...prev.phones.map((p) =>
+              p.id === outgoingPhoneId
+                ? { ...p, status: "Exchange" as const, sold_price: exchange.outgoing_value, sold_date: now, updated_at: now }
+                : p,
+            ),
+          ];
+
       return {
         ...prev,
-        phones: [inPhone, ...prev.phones.map((p) => (p.id === outgoingPhoneId ? { ...p, status: "Exchange" as const, sold_price: exchange.outgoing_value, updated_at: now } : p))],
+        phones: updatedPhones,
         customer_purchases: [customerPurchase, ...(prev.customer_purchases ?? [])],
         exchanges: [excRecord, ...(prev.exchanges ?? [])],
         transactions: [tx, ...prev.transactions],
@@ -1677,6 +1839,13 @@ export function FmmProvider({ children }: { children: ReactNode }) {
             settlementAmt,
           ),
           log("Bought from Customer", "customer_purchase", cpId, `Trade-in ${inPhone.brand} ${inPhone.model} from ${exchange.customer_name}`, exchange.incoming_valuation),
+          log(
+            "Trade-In Inspected",
+            "phone",
+            incomingId,
+            `Trade-in device received: ${inPhone.brand} ${inPhone.model} (IMEI: …${inPhone.imei.slice(-4)})${isReentry ? " [Re-entered]" : ""}`,
+            inPhone.purchase_price,
+          ),
           ...prev.audit_log,
         ],
       };
@@ -2139,6 +2308,7 @@ export function FmmProvider({ children }: { children: ReactNode }) {
       ready,
       addPhone,
       updatePhone,
+      reenterPhone,
       deletePhone,
       addPhonesBatch,
       addSupplier,
@@ -2179,6 +2349,7 @@ export function FmmProvider({ children }: { children: ReactNode }) {
       ready,
       addPhone,
       updatePhone,
+      reenterPhone,
       deletePhone,
       addPhonesBatch,
       addSupplier,

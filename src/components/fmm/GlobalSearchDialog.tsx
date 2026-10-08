@@ -1,9 +1,8 @@
-import { useState, useMemo, useEffect } from "react";
+﻿import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeftRight,
   Box,
-  Calendar,
   Layers,
   Megaphone,
   Package,
@@ -15,12 +14,71 @@ import {
   Truck,
   Users,
   Wallet,
+  Zap,
 } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useFmm } from "@/lib/fmm-store";
 import { Taka } from "./Taka";
 import { StatusBadge } from "./StatusBadge";
+import { groupedSearch, type SearchCategory } from "@/lib/fmm-search";
+
+const CATEGORY_META: Record<
+  SearchCategory,
+  { icon: React.ReactNode; label: string; route: (r: any) => string }
+> = {
+  phones: {
+    icon: <Smartphone className="size-3.5" />,
+    label: "Phones",
+    route: () => "/stock",
+  },
+  accessories: {
+    icon: <Layers className="size-3.5" />,
+    label: "Accessories",
+    route: () => "/accessories",
+  },
+  customers: {
+    icon: <Users className="size-3.5" />,
+    label: "Customers",
+    route: () => "/customers",
+  },
+  suppliers: {
+    icon: <Truck className="size-3.5" />,
+    label: "Suppliers",
+    route: (r) => `/suppliers/${r.raw.id}`,
+  },
+  campaigns: {
+    icon: <Megaphone className="size-3.5" />,
+    label: "Campaigns",
+    route: (r) => `/campaigns/${r.raw.id}`,
+  },
+  transactions: {
+    icon: <Receipt className="size-3.5" />,
+    label: "Transactions",
+    route: () => "/sales",
+  },
+  purchases: {
+    icon: <ShoppingCart className="size-3.5" />,
+    label: "Purchases",
+    route: (r) =>
+      r.raw.supplier_id ? `/purchases?supplier=${r.raw.supplier_id}` : "/purchases",
+  },
+  expenses: {
+    icon: <Wallet className="size-3.5" />,
+    label: "Expenses",
+    route: () => "/expenses",
+  },
+  warranty: {
+    icon: <ShieldCheck className="size-3.5" />,
+    label: "Warranty",
+    route: () => "/sales",
+  },
+  exchanges: {
+    icon: <ArrowLeftRight className="size-3.5" />,
+    label: "Exchanges",
+    route: () => "/sales",
+  },
+};
 
 export function GlobalSearchDialog({
   open,
@@ -37,122 +95,33 @@ export function GlobalSearchDialog({
     if (open) setQuery("");
   }, [open]);
 
-  const q = query.trim().toLowerCase();
-
-  const results = useMemo(() => {
+  const grouped = useMemo(() => {
+    const q = query.trim();
     if (!q) return null;
+    return groupedSearch(state, q, 5);
+  }, [query, state]);
 
-    const phones = (state.phones ?? []).filter(
-      (p) =>
-        p.imei.toLowerCase().includes(q) ||
-        p.brand.toLowerCase().includes(q) ||
-        p.model.toLowerCase().includes(q) ||
-        (p.storage_ram && p.storage_ram.toLowerCase().includes(q)),
-    );
-
-    const accessories = (state.accessories ?? []).filter(
-      (a) =>
-        a.name.toLowerCase().includes(q) ||
-        a.brand.toLowerCase().includes(q) ||
-        a.model_sku.toLowerCase().includes(q) ||
-        a.category.toLowerCase().includes(q),
-    );
-
-    const customers = (state.customers ?? []).filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.phone.toLowerCase().includes(q) ||
-        (c.nid_number && c.nid_number.toLowerCase().includes(q)),
-    );
-
-    const suppliers = (state.suppliers ?? []).filter(
-      (s) =>
-        s.name.toLowerCase().includes(q) ||
-        s.contact.toLowerCase().includes(q) ||
-        s.notes.toLowerCase().includes(q),
-    );
-
-    const campaigns = (state.campaigns ?? []).filter(
-      (cmp) =>
-        cmp.name.toLowerCase().includes(q) ||
-        cmp.description.toLowerCase().includes(q),
-    );
-
-    const transactions = (state.transactions ?? []).filter(
-      (t) =>
-        t.customer_name.toLowerCase().includes(q) ||
-        t.customer_phone.toLowerCase().includes(q) ||
-        t.id.toLowerCase().includes(q) ||
-        (t.memo_no && t.memo_no.toLowerCase().includes(q)),
-    );
-
-    const purchases = (state.purchases ?? []).filter((p) => {
-      const sup = state.suppliers?.find((s) => s.id === p.supplier_id);
-      return (
-        p.id.toLowerCase().includes(q) ||
-        (p.notes && p.notes.toLowerCase().includes(q)) ||
-        (sup && sup.name.toLowerCase().includes(q))
-      );
-    });
-
-    const expenses = (state.expenses ?? []).filter(
-      (e) =>
-        e.description.toLowerCase().includes(q) ||
-        e.category.toLowerCase().includes(q) ||
-        (e.payment_method && e.payment_method.toLowerCase().includes(q)),
-    );
-
-    const warrantyClaims = (state.warranty_claims ?? []).filter(
-      (w) =>
-        w.customer_name.toLowerCase().includes(q) ||
-        w.customer_phone.toLowerCase().includes(q) ||
-        w.issue_description.toLowerCase().includes(q) ||
-        (w.notes && w.notes.toLowerCase().includes(q)),
-    );
-
-    const exchanges = (state.exchanges ?? []).filter((exc) => {
-      const inPh = state.phones?.find((p) => p.id === exc.incoming_phone_id);
-      const outPh = state.phones?.find((p) => p.id === exc.outgoing_phone_id);
-      return (
-        exc.customer_name.toLowerCase().includes(q) ||
-        exc.customer_phone.toLowerCase().includes(q) ||
-        (exc.notes && exc.notes.toLowerCase().includes(q)) ||
-        (inPh && `${inPh.brand} ${inPh.model} ${inPh.imei}`.toLowerCase().includes(q)) ||
-        (outPh && `${outPh.brand} ${outPh.model} ${outPh.imei}`.toLowerCase().includes(q))
-      );
-    });
-
-    return {
-      phones,
-      accessories,
-      customers,
-      suppliers,
-      campaigns,
-      transactions,
-      purchases,
-      expenses,
-      warrantyClaims,
-      exchanges,
-    };
-  }, [q, state]);
-
-  const totalResults = results
-    ? results.phones.length +
-      results.accessories.length +
-      results.customers.length +
-      results.suppliers.length +
-      results.campaigns.length +
-      results.transactions.length +
-      results.purchases.length +
-      results.expenses.length +
-      results.warrantyClaims.length +
-      results.exchanges.length
+  const totalResults = grouped
+    ? Array.from(grouped.values()).reduce((sum, arr) => sum + arr.length, 0)
     : 0;
 
   const handleSelect = (to: string) => {
     onOpenChange(false);
     void navigate({ to });
   };
+
+  const ORDERED_CATEGORIES: SearchCategory[] = [
+    "phones",
+    "customers",
+    "suppliers",
+    "transactions",
+    "accessories",
+    "campaigns",
+    "purchases",
+    "expenses",
+    "warranty",
+    "exchanges",
+  ];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -163,7 +132,7 @@ export function GlobalSearchDialog({
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search phones (IMEI/model), accessories, customers, suppliers, campaigns…"
+            placeholder="Search… or use imei:, name:, phone:, status:, supplier: operators"
             className="border-0 bg-transparent text-base focus-visible:ring-0 focus-visible:ring-offset-0 px-0 h-8 shadow-none"
           />
           <kbd className="hidden sm:inline-block rounded bg-secondary px-2 py-0.5 text-[10px] font-mono text-muted-foreground border border-border">
@@ -172,10 +141,25 @@ export function GlobalSearchDialog({
         </div>
 
         <div className="max-h-[60vh] overflow-y-auto p-4 space-y-4">
-          {!q ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              <Search className="size-8 mx-auto mb-2 text-muted-foreground/50" />
+          {!query.trim() ? (
+            <div className="py-10 text-center text-sm text-muted-foreground space-y-3">
+              <Search className="size-8 mx-auto text-muted-foreground/40" />
               <p>Type to search across the entire inventory, contacts, and records.</p>
+              <div className="flex flex-wrap justify-center gap-2 text-[11px]">
+                {["imei:35999", "status:sold", "supplier:rahman", "name:karim", "brand:samsung"].map(
+                  (op) => (
+                    <button
+                      key={op}
+                      type="button"
+                      onClick={() => setQuery(op)}
+                      className="rounded-lg border border-border/60 bg-secondary/50 px-2.5 py-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors flex items-center gap-1"
+                    >
+                      <Zap className="size-2.5" />
+                      {op}
+                    </button>
+                  ),
+                )}
+              </div>
             </div>
           ) : totalResults === 0 ? (
             <div className="py-12 text-center text-sm text-muted-foreground">
@@ -183,288 +167,67 @@ export function GlobalSearchDialog({
             </div>
           ) : (
             <>
-              {/* Phones */}
-              {results!.phones.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Smartphone className="size-3.5" /> Phones ({results!.phones.length})
-                  </h4>
-                  <div className="space-y-1">
-                    {results!.phones.slice(0, 5).map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => handleSelect("/stock")}
-                        className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-secondary text-left transition-colors text-sm"
-                      >
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-semibold">{p.brand} {p.model}</span>
-                          {p.with_box ? (
-                            <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.2 text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                              <Box className="size-2.5" /> Box
-                            </span>
-                          ) : null}
-                          <span className="font-mono text-xs text-muted-foreground">IMEI: {p.imei}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-xs"><Taka value={p.purchase_price} /></span>
-                          <StatusBadge status={p.status} />
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Accessories */}
-              {results!.accessories.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Layers className="size-3.5" /> Accessories ({results!.accessories.length})
-                  </h4>
-                  <div className="space-y-1">
-                    {results!.accessories.slice(0, 5).map((a) => (
-                      <button
-                        key={a.id}
-                        type="button"
-                        onClick={() => handleSelect("/accessories")}
-                        className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-secondary text-left transition-colors text-sm"
-                      >
-                        <div>
-                          <span className="font-semibold">{a.name}</span>
-                          <span className="ml-2 text-xs text-muted-foreground">({a.category})</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground font-medium">{a.quantity} {a.unit} in stock</span>
-                          <span className="font-medium text-xs"><Taka value={a.selling_price} /></span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Customers */}
-              {results!.customers.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Users className="size-3.5" /> Customers ({results!.customers.length})
-                  </h4>
-                  <div className="space-y-1">
-                    {results!.customers.slice(0, 5).map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => handleSelect("/customers")}
-                        className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-secondary text-left transition-colors text-sm"
-                      >
-                        <span className="font-semibold">{c.name}</span>
-                        <span className="text-xs text-muted-foreground">{c.phone} · {c.address || "No address"}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Suppliers */}
-              {results!.suppliers.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Truck className="size-3.5" /> Suppliers ({results!.suppliers.length})
-                  </h4>
-                  <div className="space-y-1">
-                    {results!.suppliers.slice(0, 5).map((s) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => handleSelect(`/suppliers/${s.id}`)}
-                        className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-secondary text-left transition-colors text-sm"
-                      >
-                        <span className="font-semibold">{s.name}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">{s.contact}</span>
-                          <StatusBadge status={s.status} />
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Campaigns */}
-              {results!.campaigns.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Megaphone className="size-3.5" /> Campaigns ({results!.campaigns.length})
-                  </h4>
-                  <div className="space-y-1">
-                    {results!.campaigns.slice(0, 5).map((cmp) => (
-                      <button
-                        key={cmp.id}
-                        type="button"
-                        onClick={() => handleSelect(`/campaigns/${cmp.id}`)}
-                        className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-secondary text-left transition-colors text-sm"
-                      >
-                        <span className="font-semibold">{cmp.name}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">{cmp.start_date} to {cmp.end_date}</span>
-                          <StatusBadge status={cmp.status} />
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Transactions */}
-              {results!.transactions.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Receipt className="size-3.5" /> Transactions ({results!.transactions.length})
-                  </h4>
-                  <div className="space-y-1">
-                    {results!.transactions.slice(0, 5).map((t) => (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => handleSelect("/sales")}
-                        className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-secondary text-left transition-colors text-sm"
-                      >
-                        <div>
-                          <span className="font-medium">{t.customer_name}</span>
-                          <span className="ml-2 text-xs text-muted-foreground">{new Date(t.date).toLocaleDateString()}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-xs"><Taka value={t.amount} /></span>
-                          <StatusBadge status={t.payment_status} />
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Purchases */}
-              {results!.purchases.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <ShoppingCart className="size-3.5" /> Purchases & Procurement ({results!.purchases.length})
-                  </h4>
-                  <div className="space-y-1">
-                    {results!.purchases.slice(0, 5).map((p) => {
-                      const sup = state.suppliers?.find((s) => s.id === p.supplier_id);
-                      return (
+              {ORDERED_CATEGORIES.map((cat) => {
+                const items = grouped?.get(cat);
+                if (!items || items.length === 0) return null;
+                const meta = CATEGORY_META[cat];
+                return (
+                  <div key={cat}>
+                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      {meta.icon} {meta.label} ({items.length})
+                    </h4>
+                    <div className="space-y-1">
+                      {items.map((r) => (
                         <button
-                          key={p.id}
+                          key={r.id}
                           type="button"
-                          onClick={() => handleSelect(p.supplier_id ? `/purchases?supplier=${p.supplier_id}` : "/purchases")}
+                          onClick={() => handleSelect(meta.route(r))}
                           className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-secondary text-left transition-colors text-sm"
                         >
-                          <div>
-                            <span className="font-medium">{sup?.name || "Supplier"}</span>
-                            <span className="ml-2 text-xs text-muted-foreground font-mono">{p.id}</span>
-                            {p.notes && <span className="ml-2 text-xs text-muted-foreground truncate">· {p.notes}</span>}
+                          <div className="flex flex-col min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {cat === "phones" && r.raw.with_box ? (
+                                <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                  <Box className="size-2.5" /> Box
+                                </span>
+                              ) : null}
+                              <span className="font-semibold text-foreground truncate">{r.title}</span>
+                            </div>
+                            <span className="text-xs text-muted-foreground font-mono truncate">{r.subtitle}</span>
+                            {r.meta && (
+                              <span className="text-xs text-muted-foreground truncate">{r.meta}</span>
+                            )}
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-xs"><Taka value={p.total_amount} /></span>
-                            <StatusBadge status={p.payment_status} />
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Expenses */}
-              {results!.expenses.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Wallet className="size-3.5" /> Expenses ({results!.expenses.length})
-                  </h4>
-                  <div className="space-y-1">
-                    {results!.expenses.slice(0, 5).map((e) => (
-                      <button
-                        key={e.id}
-                        type="button"
-                        onClick={() => handleSelect("/expenses")}
-                        className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-secondary text-left transition-colors text-sm"
-                      >
-                        <div>
-                          <span className="font-medium">{e.description}</span>
-                          <span className="ml-2 text-xs text-muted-foreground">({e.category})</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-xs text-destructive"><Taka value={e.amount} /></span>
-                          <span className="text-xs text-muted-foreground">{new Date(e.date).toLocaleDateString()}</span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Warranty Claims */}
-              {results!.warrantyClaims.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <ShieldCheck className="size-3.5" /> Warranty Claims ({results!.warrantyClaims.length})
-                  </h4>
-                  <div className="space-y-1">
-                    {results!.warrantyClaims.slice(0, 5).map((w) => (
-                      <button
-                        key={w.id}
-                        type="button"
-                        onClick={() => handleSelect("/sales")}
-                        className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-secondary text-left transition-colors text-sm"
-                      >
-                        <div>
-                          <span className="font-medium">{w.customer_name}</span>
-                          <span className="ml-2 text-xs text-muted-foreground truncate">{w.issue_description}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <StatusBadge status={w.status} />
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Exchanges */}
-              {results!.exchanges.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <ArrowLeftRight className="size-3.5" /> Exchanges & Trade-ins ({results!.exchanges.length})
-                  </h4>
-                  <div className="space-y-1">
-                    {results!.exchanges.slice(0, 5).map((exc) => {
-                      const inPh = state.phones?.find((p) => p.id === exc.incoming_phone_id);
-                      return (
-                        <button
-                          key={exc.id}
-                          type="button"
-                          onClick={() => handleSelect("/sales")}
-                          className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-secondary text-left transition-colors text-sm"
-                        >
-                          <div>
-                            <span className="font-medium">{exc.customer_name}</span>
-                            <span className="ml-2 text-xs text-muted-foreground">
-                              Trade-in: {inPh ? `${inPh.brand} ${inPh.model}` : "Exchange device"}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {exc.incoming_valuation ? (
-                              <span className="text-xs font-medium"><Taka value={exc.incoming_valuation} /></span>
-                            ) : null}
-                            <StatusBadge status={exc.inspection_status || "Pending Inspection"} />
+                          <div className="flex items-center gap-2 shrink-0 ml-2">
+                            {cat === "phones" && (
+                              <span className="font-medium text-xs">
+                                <Taka value={r.raw.purchase_price} />
+                              </span>
+                            )}
+                            {(cat === "transactions" || cat === "purchases") && (
+                              <span className="font-semibold text-xs">
+                                <Taka value={cat === "transactions" ? r.raw.amount : r.raw.total_amount} />
+                              </span>
+                            )}
+                            {cat === "expenses" && (
+                              <span className="font-semibold text-xs text-destructive">
+                                <Taka value={r.raw.amount} />
+                              </span>
+                            )}
+                            {r.badge && <StatusBadge status={r.badge} />}
                           </div>
                         </button>
-                      );
-                    })}
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })}
+              <div className="pt-2 border-t border-border/50 text-[11px] text-center text-muted-foreground">
+                {totalResults} result{totalResults !== 1 ? "s" : ""} · Use{" "}
+                <span className="font-mono">imei:</span>,{" "}
+                <span className="font-mono">status:</span>,{" "}
+                <span className="font-mono">supplier:</span> operators for precision search
+              </div>
             </>
           )}
         </div>

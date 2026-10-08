@@ -12,6 +12,7 @@ import { type PhoneCondition, type StoredFile, PHONE_BRAND_OPTIONS, PHONE_RAM_OP
 import { Taka, TakaSign } from "./Taka";
 import { StatusBadge } from "./StatusBadge";
 import { processStoredFile, isImageDocument } from "@/lib/fmm-file";
+import { checkImeiCollision, isValidImei } from "@/lib/fmm-imei";
 
 const steps = ["Outgoing Phone", "Trade-in Device", "Customer & Settlement"];
 
@@ -115,7 +116,10 @@ export function ExchangePhoneDialog({
     setNidBack(null);
     setDocs([]);
     setPaymentMethod("Cash");
+    setAllowInvalidImei(false);
   };
+
+  const [allowInvalidImei, setAllowInvalidImei] = useState(false);
 
   useEffect(() => {
     if (open) reset();
@@ -141,35 +145,15 @@ export function ExchangePhoneDialog({
     }
   };
 
-  const cleanImei = (val: string) => val.replace(/[\s-]/g, "").toLowerCase();
+  const imeiValidation = useMemo(() => {
+    if (!inImei.trim()) return { valid: true };
+    return isValidImei(inImei);
+  }, [inImei]);
 
-  const duplicatePhone = useMemo(() => {
-    const target = cleanImei(inImei);
-    if (!target) return null;
-    return (
-      (state.phones ?? []).find(
-        (p) =>
-          cleanImei(p.imei) === target ||
-          (p.imei_secondary && cleanImei(p.imei_secondary) === target),
-      ) || null
-    );
-  }, [inImei, state.phones]);
-
-  const duplicateSecondaryPhone = useMemo(() => {
-    const target = cleanImei(inImeiSecondary);
-    if (!target) return null;
-    const primTarget = cleanImei(inImei);
-    if (primTarget && target === primTarget) {
-      return { isSelfConflict: true, brand: "", model: "", status: "" };
-    }
-    const match = (state.phones ?? []).find(
-      (p) =>
-        cleanImei(p.imei) === target ||
-        (p.imei_secondary && cleanImei(p.imei_secondary) === target),
-    );
-    if (match) return { isSelfConflict: false, brand: match.brand, model: match.model, status: match.status };
-    return null;
-  }, [inImei, inImeiSecondary, state.phones]);
+  const collision = useMemo(() => {
+    if (!inImei.trim() && !inImeiSecondary.trim()) return { hasCollision: false, inStockConflict: false, canReenter: false, collidingPhone: null };
+    return checkImeiCollision(state, inImei, inImeiSecondary);
+  }, [inImei, inImeiSecondary, state]);
 
   const validateStep = (currentStep: number) => {
     if (currentStep === 0) {
@@ -186,16 +170,12 @@ export function ExchangePhoneDialog({
         toast.error("Brand, Model, and IMEI are required for the trade-in phone.");
         return false;
       }
-      if (duplicatePhone) {
-        toast.error(`Trade-in IMEI "${inImei.trim()}" already exists in inventory (${duplicatePhone.brand} ${duplicatePhone.model}). Duplicate IMEIs are not allowed.`);
+      if (!imeiValidation.valid && !allowInvalidImei) {
+        toast.error(`IMEI warning: ${imeiValidation.reason}. Confirm the checkbox to proceed.`);
         return false;
       }
-      if (duplicateSecondaryPhone) {
-        toast.error(
-          duplicateSecondaryPhone.isSelfConflict
-            ? "Secondary IMEI cannot match Primary IMEI."
-            : `Trade-in secondary IMEI is already in use by ${duplicateSecondaryPhone.brand} ${duplicateSecondaryPhone.model}.`
-        );
+      if (collision.hasCollision && (collision.type === "conflict" || collision.type === "self_conflict")) {
+        toast.error(collision.message);
         return false;
       }
       if (!inValuation || Number(inValuation) <= 0) {
@@ -218,11 +198,11 @@ export function ExchangePhoneDialog({
 
   const submitExchange = () => {
     if (!validateStep(0) || !validateStep(1)) return;
-    if (duplicatePhone) {
-      toast.error(`Trade-in IMEI already exists in inventory (${duplicatePhone.brand} ${duplicatePhone.model}).`);
+    if (collision.hasCollision && collision.inStockConflict && collision.phone) {
+      toast.error(`Trade-in IMEI already exists in inventory (${collision.phone.brand} ${collision.phone.model}).`);
       return;
     }
-    if (duplicateSecondaryPhone) {
+    if (collision.hasCollision && collision.type === "self_conflict") {
       toast.error("Secondary IMEI is invalid or already registered.");
       return;
     }
@@ -540,26 +520,66 @@ export function ExchangePhoneDialog({
                     onChange={(e) => setInImei(e.target.value)}
                     placeholder="15-digit primary IMEI"
                     className={`font-mono text-xs transition-colors ${
-                      duplicatePhone
+                      collision.hasCollision && (collision.type === "conflict" || collision.type === "self_conflict")
                         ? "border-destructive focus-visible:ring-destructive text-destructive bg-destructive/5 font-semibold"
+                        : !imeiValidation.valid
+                        ? "border-amber-500/50 focus-visible:ring-amber-500"
                         : ""
                     }`}
                   />
-                  {duplicatePhone && (
-                    <div className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive mt-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
-                      <AlertCircle className="size-4 shrink-0 mt-0.5 text-destructive" />
-                      <div className="space-y-0.5">
-                        <div className="font-semibold flex items-center gap-1.5">
-                          <span>Duplicate IMEI Detected</span>
-                          <span className="inline-flex items-center rounded-full bg-destructive/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
-                            Already Exists
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-foreground/85 leading-relaxed">
-                          This IMEI is already registered to <strong className="text-foreground font-semibold">{duplicatePhone.brand} {duplicatePhone.model}</strong> (Status: <span className="font-semibold underline decoration-destructive/50">{duplicatePhone.status}</span>). Duplicate IMEIs are not allowed.
+                  {!imeiValidation.valid && inImei.trim() && (
+                    <div className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-300 mt-1.5">
+                      <AlertCircle className="size-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                      <div className="space-y-1.5">
+                        <div className="font-semibold">IMEI Validation Warning</div>
+                        <p className="text-[11px] leading-relaxed">
+                          {imeiValidation.reason}
                         </p>
+                        <div className="flex items-center gap-2 pt-1">
+                          <Checkbox
+                            id="exchange-allow-invalid-imei"
+                            checked={allowInvalidImei}
+                            onCheckedChange={(c) => setAllowInvalidImei(Boolean(c))}
+                          />
+                          <label htmlFor="exchange-allow-invalid-imei" className="text-[11px] font-medium cursor-pointer text-foreground">
+                            Confirm: Allow non-standard IMEI
+                          </label>
+                        </div>
                       </div>
                     </div>
+                  )}
+                  {collision.hasCollision && (
+                    collision.type === "reenter" ? (
+                      <div className="flex items-start gap-2.5 rounded-xl border border-primary/40 bg-primary/5 p-2.5 text-xs mt-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
+                        <AlertCircle className="size-4 shrink-0 mt-0.5 text-primary" />
+                        <div className="space-y-1">
+                          <div className="font-semibold text-foreground flex items-center gap-1.5">
+                            <span>Past Device Recognized</span>
+                            <span className="inline-flex items-center rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary">
+                              Re-entry
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground leading-relaxed">
+                            This phone was previously handled by the shop (<strong className="text-foreground">{collision.phone?.brand} {collision.phone?.model}</strong>, status: {collision.phone?.status}). Exchanging will reuse its permanent record and append a new cycle to its history.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive mt-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
+                        <AlertCircle className="size-4 shrink-0 mt-0.5 text-destructive" />
+                        <div className="space-y-0.5">
+                          <div className="font-semibold flex items-center gap-1.5">
+                            <span>Duplicate IMEI In Stock</span>
+                            <span className="inline-flex items-center rounded-full bg-destructive/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                              Blocked
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-foreground/85 leading-relaxed">
+                            {collision.message}
+                          </p>
+                        </div>
+                      </div>
+                    )
                   )}
                 </Field>
                 <Field label="Secondary IMEI (optional)">
@@ -568,24 +588,20 @@ export function ExchangePhoneDialog({
                     onChange={(e) => setInImeiSecondary(e.target.value)}
                     placeholder="Optional 2nd IMEI"
                     className={`font-mono text-xs transition-colors ${
-                      duplicateSecondaryPhone
+                      collision.hasCollision && (collision.type === "self_conflict" || (collision.type === "conflict" && collision.field === "secondary"))
                         ? "border-destructive focus-visible:ring-destructive text-destructive bg-destructive/5 font-semibold"
                         : ""
                     }`}
                   />
-                  {duplicateSecondaryPhone && (
+                  {collision.hasCollision && (collision.type === "self_conflict" || (collision.type === "conflict" && collision.field === "secondary")) && (
                     <div className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive mt-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
                       <AlertCircle className="size-4 shrink-0 mt-0.5 text-destructive" />
                       <div className="space-y-0.5">
                         <div className="font-semibold text-destructive">
-                          {duplicateSecondaryPhone.isSelfConflict
-                            ? "Secondary IMEI cannot match Primary IMEI"
-                            : "Duplicate Secondary IMEI"}
+                          {collision.type === "self_conflict" ? "Secondary IMEI Conflict" : "Duplicate Secondary IMEI"}
                         </div>
                         <p className="text-[11px] text-foreground/85 leading-relaxed">
-                          {duplicateSecondaryPhone.isSelfConflict
-                            ? "Primary and secondary IMEI cannot be identical."
-                            : `This secondary IMEI is already in use by ${duplicateSecondaryPhone.brand} ${duplicateSecondaryPhone.model} (${duplicateSecondaryPhone.status}).`}
+                          {collision.message}
                         </p>
                       </div>
                     </div>

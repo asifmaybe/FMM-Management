@@ -11,6 +11,7 @@ import { useFmm, normalizeCycleCount } from "@/lib/fmm-store";
 import { type PhoneCondition, type StoredFile, PHONE_BRAND_OPTIONS, PHONE_RAM_OPTIONS, PHONE_ROM_OPTIONS } from "@/lib/fmm-types";
 import { TakaSign } from "@/components/fmm/Taka";
 import { processStoredFile, isImageDocument } from "@/lib/fmm-file";
+import { checkImeiCollision, isValidImei } from "@/lib/fmm-imei";
 
 const steps = ["Customer Info", "Identity Verification (Optional)", "Phone Details"];
 
@@ -67,7 +68,10 @@ export function CustomerIntakeDialog({ open, onOpenChange }: { open: boolean; on
       with_box: false,
     });
     setDamage({ screen_scratch: false, body_dent: false, battery_issue: false, camera_blurry: false });
+    setAllowInvalidImei(false);
   };
+
+  const [allowInvalidImei, setAllowInvalidImei] = useState(false);
 
   useEffect(() => {
     if (open) reset();
@@ -78,27 +82,27 @@ export function CustomerIntakeDialog({ open, onOpenChange }: { open: boolean; on
     if (file) setter(await readFile(file));
   };
 
-  const cleanImei = (val: string) => val.replace(/[\s-]/g, "").toLowerCase();
+  const imeiValidation = useMemo(() => {
+    if (!phone.imei.trim()) return { valid: true };
+    return isValidImei(phone.imei);
+  }, [phone.imei]);
 
-  const duplicatePhone = useMemo(() => {
-    const target = cleanImei(phone.imei);
-    if (!target) return null;
-    return (
-      (state.phones ?? []).find(
-        (p) =>
-          cleanImei(p.imei) === target ||
-          (p.imei_secondary && cleanImei(p.imei_secondary) === target),
-      ) || null
-    );
-  }, [phone.imei, state.phones]);
+  const collision = useMemo(() => {
+    if (!phone.imei.trim()) return { hasCollision: false, inStockConflict: false, canReenter: false, collidingPhone: null };
+    return checkImeiCollision(state, phone.imei, null);
+  }, [phone.imei, state]);
 
   const save = () => {
     if (!customer.name.trim() || !phone.model.trim() || !phone.imei.trim() || !phone.agreed_price) {
       toast.error("Customer full name, device model, IMEI, and agreed price are required.");
       return;
     }
-    if (duplicatePhone) {
-      toast.error(`IMEI "${phone.imei.trim()}" already exists in inventory (${duplicatePhone.brand} ${duplicatePhone.model}). Duplicate IMEIs are not allowed.`);
+    if (!imeiValidation.valid && !allowInvalidImei) {
+      toast.error(`IMEI warning: ${imeiValidation.reason}. Confirm the checkbox to proceed.`);
+      return;
+    }
+    if (collision.hasCollision && collision.type === "conflict") {
+      toast.error(collision.message);
       return;
     }
     saveCustomerPurchase(
@@ -392,26 +396,66 @@ export function CustomerIntakeDialog({ open, onOpenChange }: { open: boolean; on
                     onChange={(e) => setPhone({ ...phone, imei: e.target.value })}
                     placeholder="Enter 15-digit IMEI"
                     className={`font-mono text-xs transition-colors ${
-                      duplicatePhone
+                      collision.hasCollision && collision.type === "conflict"
                         ? "border-destructive focus-visible:ring-destructive text-destructive bg-destructive/5 font-semibold"
+                        : !imeiValidation.valid
+                        ? "border-amber-500/50 focus-visible:ring-amber-500"
                         : ""
                     }`}
                   />
-                  {duplicatePhone && (
-                    <div className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive mt-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
-                      <AlertCircle className="size-4 shrink-0 mt-0.5 text-destructive" />
-                      <div className="space-y-0.5">
-                        <div className="font-semibold flex items-center gap-1.5">
-                          <span>Duplicate IMEI Detected</span>
-                          <span className="inline-flex items-center rounded-full bg-destructive/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
-                            Already Exists
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-foreground/85 leading-relaxed">
-                          This IMEI is already registered to <strong className="text-foreground font-semibold">{duplicatePhone.brand} {duplicatePhone.model}</strong> (Status: <span className="font-semibold underline decoration-destructive/50">{duplicatePhone.status}</span>). Duplicate IMEIs are not allowed.
+                  {!imeiValidation.valid && phone.imei.trim() && (
+                    <div className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-300 mt-1.5">
+                      <AlertCircle className="size-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                      <div className="space-y-1.5">
+                        <div className="font-semibold">IMEI Validation Warning</div>
+                        <p className="text-[11px] leading-relaxed">
+                          {imeiValidation.reason}
                         </p>
+                        <div className="flex items-center gap-2 pt-1">
+                          <Checkbox
+                            id="intake-allow-invalid-imei"
+                            checked={allowInvalidImei}
+                            onCheckedChange={(c) => setAllowInvalidImei(Boolean(c))}
+                          />
+                          <label htmlFor="intake-allow-invalid-imei" className="text-[11px] font-medium cursor-pointer text-foreground">
+                            Confirm: Allow non-standard IMEI
+                          </label>
+                        </div>
                       </div>
                     </div>
+                  )}
+                  {collision.hasCollision && (
+                    collision.type === "reenter" ? (
+                      <div className="flex items-start gap-2.5 rounded-xl border border-primary/40 bg-primary/5 p-2.5 text-xs mt-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
+                        <AlertCircle className="size-4 shrink-0 mt-0.5 text-primary" />
+                        <div className="space-y-1">
+                          <div className="font-semibold text-foreground flex items-center gap-1.5">
+                            <span>Past Shop Device Recognized</span>
+                            <span className="inline-flex items-center rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary">
+                              Re-entry
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground leading-relaxed">
+                            This device was previously handled by the shop (<strong className="text-foreground">{collision.phone?.brand} {collision.phone?.model}</strong>, status: {collision.phone?.status}). Purchasing will reuse its permanent identity and append a new cycle to its history.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive mt-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
+                        <AlertCircle className="size-4 shrink-0 mt-0.5 text-destructive" />
+                        <div className="space-y-0.5">
+                          <div className="font-semibold flex items-center gap-1.5">
+                            <span>Duplicate IMEI In Stock</span>
+                            <span className="inline-flex items-center rounded-full bg-destructive/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                              Blocked
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-foreground/85 leading-relaxed">
+                            {collision.message}
+                          </p>
+                        </div>
+                      </div>
+                    )
                   )}
                 </Field>
                 <Field label={<>Bought Price (<TakaSign />)</>}>
@@ -555,7 +599,7 @@ export function CustomerIntakeDialog({ open, onOpenChange }: { open: boolean; on
                 !phone.model.trim() ||
                 !phone.imei.trim() ||
                 !phone.agreed_price ||
-                Boolean(duplicatePhone)
+                Boolean(collision.inStockConflict)
               }
             >
               Save &amp; Add to Stock
